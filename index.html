@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7cc8ff">
 <title>Raising the Bar</title>
 <style>
   :root {
@@ -13,12 +16,18 @@
     --right: #ff8a1f;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #8fd3ff; }
-  body { font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif; color: var(--ink); user-select: none; }
-  canvas { display: block; width: 100vw; height: 100vh; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #8fd3ff; overscroll-behavior: none; }
+  body { font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif; color: var(--ink); user-select: none;
+    -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; touch-action: none; }
+  #safe { position: fixed; visibility: hidden; pointer-events: none; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  .touch-only { display: none; }
+  body.touch .touch-only { display: block; }
+  body.touch .kb-only { display: none; }
   .overlay {
     position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
     background: rgba(29, 27, 47, 0.35); padding: 16px; transition: opacity .2s;
+    overflow-y: auto; touch-action: pan-y;
   }
   .overlay.hidden { opacity: 0; pointer-events: none; }
   .card {
@@ -61,27 +70,48 @@
   .newbest { display: inline-block; background: #ffd23f; border: 3px solid var(--ink); border-radius: 8px; padding: 2px 10px; font-weight: 900; transform: rotate(-3deg); margin: 4px 0; }
   .quip { font-size: 21px; font-style: italic; font-weight: bold; margin: 14px 0 20px; min-height: 1.4em; }
   .cause { font-size: 14px; opacity: .7; margin-top: -10px; margin-bottom: 14px; }
+  .touchpads { display: flex; gap: 10px; justify-content: center; margin: 0 auto 12px; max-width: 360px; }
+  .touchpads div { flex: 1; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 6px; font-weight: 900; font-size: 15px; line-height: 1.25; }
+  .touchpads .l { background: #dbe8ff; color: var(--left); }
+  .touchpads .r { background: #ffe9d4; color: #d86a00; }
+  @media (max-width: 480px), (max-height: 560px) {
+    .card { padding: 18px 16px; box-shadow: 6px 6px 0 var(--ink); margin: auto; }
+    .sub { font-size: 17px; margin: 10px 0 12px; }
+    .controls { font-size: 15px; gap: 6px 10px; }
+    .key { min-width: 36px; height: 34px; font-size: 17px; }
+    .tips { font-size: 13px; margin-bottom: 12px; }
+    button { font-size: 20px; padding: 10px 26px; }
+    .stat .val { font-size: 28px; }
+    .quip { font-size: 18px; margin: 10px 0 14px; }
+  }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
+<div id="safe"></div>
 
 <div id="menu" class="overlay">
   <div class="card">
     <h1>Raising<br>the <span class="up">Bar</span><span class="bar"></span></h1>
     <div class="sub">How high can you go?</div>
-    <div class="controls">
+    <div class="controls kb-only">
       <span class="key l">S</span><span><b>Left</b> arm</span>
       <span class="key r">K</span><span><b>Right</b> arm</span>
       <span><span class="key l">S</span> + <span class="key r">K</span></span><span><b>Full Pull-Up</b> (costs lots of stamina)</span>
     </div>
+    <div class="touchpads touch-only">
+      <div class="l">HOLD LEFT HALF<br>= S (left arm)</div>
+      <div class="r">HOLD RIGHT HALF<br>= K (right arm)</div>
+    </div>
+    <div class="touch-only" style="font-weight:bold;margin-bottom:8px">Both thumbs = Full Pull-Up</div>
     <div class="tips">
-      <b>Hold</b> a key to pull with that arm. <b>Release</b> it at the top to let go and reach up.<br>
+      <b>Hold</b> a side to pull with that arm. <b>Release</b> it at the top to let go and reach up.<br>
       Hands grab any bar they touch. Rest to recover stamina &mdash; but not forever.<br>
       Two keys. One ladder. How hard could it be?
     </div>
     <button id="startBtn">Start</button>
-    <div class="hint">Enter / Space to start &middot; M to mute &middot; Esc to pause</div>
+    <div class="hint kb-only">Enter / Space to start &middot; M to mute &middot; Esc to pause &middot; touch works too</div>
+    <div class="hint touch-only">Tip: play in landscape or portrait &middot; ❚❚ button to pause</div>
   </div>
 </div>
 
@@ -98,7 +128,7 @@
     <div class="cause" id="oCause"></div>
     <button id="retryBtn">Try Again</button><br>
     <button id="menuBtn" class="secondary">Main Menu</button>
-    <div class="hint">Enter / Space / R to retry</div>
+    <div class="hint kb-only">Enter / Space / R to retry</div>
   </div>
 </div>
 
@@ -591,7 +621,7 @@ if (typeof document !== 'undefined') (function boot() {
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const $ = (id) => document.getElementById(id);
-  let W = 0, Hh = 0, dpr = 1, scale = 100;
+  let W = 0, Hh = 0, dpr = 1, scale = 100, safe = { t: 0, r: 0, b: 0, l: 0 };
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -599,6 +629,8 @@ if (typeof document !== 'undefined') (function boot() {
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(Hh * dpr);
     scale = Hh / 7.2;
     if (W / scale < 4.4) scale = W / 4.4;
+    const cs = getComputedStyle(document.getElementById('safe'));
+    safe = { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
   }
   window.addEventListener('resize', resize); resize();
 
@@ -677,7 +709,45 @@ if (typeof document !== 'undefined') (function boot() {
     else if (mode === 'play' && paused && (k === 'Enter' || k === ' ')) paused = false;
   });
   window.addEventListener('keyup', (e) => setKey(e, false));
-  window.addEventListener('blur', () => { keys.S = keys.K = false; if (mode === 'play') paused = true; });
+
+  // ---------- touch / pointer: hold left half = S, right half = K (multi-touch) ----------
+  const pointers = new Map(); // pointerId -> 'S' | 'K'
+  let isTouch = false;
+  function setTouchMode(on) {
+    if (on === isTouch) return;
+    isTouch = on; document.body.classList.toggle('touch', on);
+  }
+  setTouchMode((window.matchMedia && matchMedia('(pointer: coarse)').matches) || navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches);
+  const pauseBtn = () => ({ x: W / 2 - 24, y: safe.t + 10, w: 48, h: 40 });
+  function inRect(x, y, r) { return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
+  canvas.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    initAudio();
+    if (e.pointerType === 'touch') setTouchMode(true);
+    if (mode !== 'play') return;
+    if (paused) { paused = false; return; } // tap anywhere to resume
+    if (isTouch && inRect(e.clientX, e.clientY, pauseBtn())) { paused = true; releasePointers(); return; }
+    const side = e.clientX < W / 2 ? 'S' : 'K';
+    pointers.set(e.pointerId, side);
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  const endPointer = (e) => { pointers.delete(e.pointerId); };
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('lostpointercapture', endPointer);
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  // stop iOS from scrolling/zooming the page while playing
+  document.addEventListener('touchmove', (e) => { if (e.target === canvas) e.preventDefault(); }, { passive: false });
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+  function releasePointers() { pointers.clear(); }
+  function touchHeld(side) { for (const v of pointers.values()) if (v === side) return true; return false; }
+  const inputS = () => keys.S || touchHeld('S');
+  const inputK = () => keys.K || touchHeld('K');
+  function buzz(ms) { try { if (isTouch && navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+
+  function suspend() { keys.S = keys.K = false; releasePointers(); if (mode === 'play') paused = true; }
+  window.addEventListener('blur', suspend);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) suspend(); });
 
   // ---------- game state ----------
   let mode = 'menu', paused = false;
@@ -691,7 +761,7 @@ if (typeof document !== 'undefined') (function boot() {
   function startGame() {
     initAudio();
     g = newGame((Math.random() * 1e9) | 0, 'play');
-    particles = []; texts = []; bubble = null; newBestThisRun = false; paused = false;
+    particles = []; texts = []; bubble = null; newBestThisRun = false; paused = false; releasePointers();
     mode = 'play';
     $('menu').classList.add('hidden'); $('over').classList.add('hidden');
     cam.y = g.body.pts[HEAD].y - 0.6;
@@ -765,16 +835,16 @@ if (typeof document !== 'undefined') (function boot() {
           else SFX.pull();
           break;
         case 'slip':
-          SFX.slip(); addText(e.x, e.y + 0.1, e.exhausted ? 'NO GRIP!' : 'SLIP!', '#ff6b6b', 26); say(pick(['WHOA!', 'NOPE!', 'UH OH', 'AAH!']));
+          SFX.slip(); buzz(40); addText(e.x, e.y + 0.1, e.exhausted ? 'NO GRIP!' : 'SLIP!', '#ff6b6b', 26); say(pick(['WHOA!', 'NOPE!', 'UH OH', 'AAH!']));
           break;
         case 'fumble':
           SFX.fumble(); addText(e.x, e.y + 0.1, 'FUMBLE!', '#ff9f43', 22); puff(e.x, e.y, 5, '#ffd9a0', 1.5, 0.03);
           break;
         case 'die':
-          SFX.fall(); say(pick(['AAAAAAAH!', 'NOOOOO!', 'WAAAAH!', 'MOMMY!']), 1.6);
+          SFX.fall(); buzz(120); say(pick(['AAAAAAAH!', 'NOOOOO!', 'WAAAAH!', 'MOMMY!']), 1.6);
           break;
         case 'impact':
-          SFX.impact(); cam.shake = 0.25; puff(e.x, 0.05, 22, '#ffe7a8', 3, 0.06);
+          SFX.impact(); buzz([60, 40, 90]); cam.shake = 0.25; puff(e.x, 0.05, 22, '#ffe7a8', 3, 0.06);
           for (let i = 0; i < 5; i++) particles.push({ x: e.x, y: 0.4, vx: (Math.random() - 0.5) * 3, vy: 2 + Math.random() * 2, life: 1.2, max: 1.2, color: '#ffd23f', size: 0.07, g: 6, star: true });
           break;
         case 'clank':
@@ -803,8 +873,8 @@ if (typeof document !== 'undefined') (function boot() {
       let steps = 0;
       while (acc >= CFG.DT && steps < 8) {
         const inputOn = g.state === 'play';
-        g.hands[0].key = inputOn && keys.S;
-        g.hands[1].key = inputOn && keys.K;
+        g.hands[0].key = inputOn && inputS();
+        g.hands[1].key = inputOn && inputK();
         stepSim(g, CFG.DT);
         handleEvents();
         acc -= CFG.DT; steps++;
@@ -856,7 +926,9 @@ if (typeof document !== 'undefined') (function boot() {
     const P = g.body.pts;
     let cx = 0, cy = 0; for (const p of P) { cx += p.x * p.m; cy += p.y * p.m; } cx /= TOTAL_M; cy /= TOTAL_M;
     const dying = g.state === 'dying';
-    const ty = Math.max(dying ? cy : cy + 0.9, 2.9);
+    // keep the climber centred in the space left between the top and bottom HUD
+    const L = hudLayout(), hudShift = mode === 'play' ? (L.bottom - L.top) / 2 / scale : 0;
+    const ty = Math.max((dying ? cy : cy + 0.9) - hudShift, 2.9);
     const rate = dying ? 5 : 3.2;
     cam.y += (ty - cam.y) * (1 - Math.exp(-dt * rate));
     cam.x += (cx * 0.35 - cam.x) * (1 - Math.exp(-dt * 2.5));
@@ -1004,7 +1076,7 @@ if (typeof document !== 'undefined') (function boot() {
     if (mode === 'play' && paused) {
       ctx.fillStyle = 'rgba(29,27,47,0.5)'; ctx.fillRect(0, 0, W, Hh);
       ctx.fillStyle = '#fff'; ctx.font = '900 56px Impact, Arial Black, sans-serif'; ctx.fillText('PAUSED', W / 2, Hh / 2 - 10);
-      ctx.font = 'bold 18px Trebuchet MS, sans-serif'; ctx.fillText('Esc / Enter to resume', W / 2, Hh / 2 + 36);
+      ctx.font = 'bold 18px Trebuchet MS, sans-serif'; ctx.fillText(isTouch ? 'Tap anywhere to resume' : 'Esc / Enter to resume', W / 2, Hh / 2 + 36);
     }
   }
 
@@ -1106,31 +1178,53 @@ if (typeof document !== 'undefined') (function boot() {
     }
   }
 
+  // bottom HUD geometry; stamina bar sits between the key pads when there is room
+  function hudLayout() {
+    const pad = 18, pl = pad + safe.l, pr = pad + safe.r, pb = pad + safe.b;
+    const kw = isTouch ? Math.min(170, W / 2 - pl - 8) : 142, kh = isTouch ? 64 : 52;
+    const mid = W - pl - pr - 2 * kw - 32;
+    const narrow = mid < 220;
+    return { kw, kh, mid, narrow, bottom: pb + kh + (narrow ? 60 : 8), top: pad + safe.t + 84 };
+  }
+
   function drawHUD() {
-    const pad = 18;
+    const pad = 18, pl = pad + safe.l, pr = pad + safe.r, pt = pad + safe.t, pb = pad + safe.b;
+    // touch zones: tint the half being held
+    if (isTouch && mode === 'play') {
+      for (const h of g.hands) {
+        if (!h.key) continue;
+        ctx.fillStyle = h.side ? 'rgba(255,138,31,0.10)' : 'rgba(47,123,255,0.10)';
+        ctx.fillRect(h.side ? W / 2 : 0, 0, W / 2, Hh);
+      }
+      ctx.fillStyle = 'rgba(29,27,47,0.12)'; ctx.fillRect(W / 2 - 1, Hh * 0.55, 2, Hh * 0.45);
+      const r = pauseBtn();
+      ctx.fillStyle = 'rgba(29,27,47,0.55)'; roundRect(r.x, r.y, r.w, r.h, 10); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillRect(r.x + 17, r.y + 11, 5, 18); ctx.fillRect(r.x + 26, r.y + 11, 5, 18);
+    }
     ctx.textBaseline = 'alphabetic';
     // height
     ctx.textAlign = 'left';
     ctx.font = '900 14px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.75)';
-    ctx.fillText('HEIGHT', pad, pad + 12);
+    ctx.fillText('HEIGHT', pl, pt + 12);
     ctx.font = '900 44px Impact, Arial Black, sans-serif';
-    ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(g.height.toFixed(1) + 'm', pad, pad + 56);
-    ctx.fillStyle = '#1d1b2f'; ctx.fillText(g.height.toFixed(1) + 'm', pad, pad + 56);
+    ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(g.height.toFixed(1) + 'm', pl, pt + 56);
+    ctx.fillStyle = '#1d1b2f'; ctx.fillText(g.height.toFixed(1) + 'm', pl, pt + 56);
     ctx.font = 'bold 14px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.8)';
-    ctx.fillText('MAX ' + g.maxHeight.toFixed(1) + 'm  ·  SCORE ' + score(g), pad, pad + 78);
+    ctx.fillText('MAX ' + g.maxHeight.toFixed(1) + 'm  ·  SCORE ' + score(g), pl, pt + 78);
     // best
     ctx.textAlign = 'right';
     const bshow = Math.max(best, g.maxHeight);
     ctx.font = '900 14px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.75)';
-    ctx.fillText('BEST', W - pad, pad + 12);
+    ctx.fillText('BEST', W - pr, pt + 12);
     ctx.font = '900 34px Impact, Arial Black, sans-serif';
-    ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(bshow.toFixed(1) + 'm', W - pad, pad + 48);
-    ctx.fillStyle = g.maxHeight > best && best > 0 ? '#e0357a' : '#1d1b2f'; ctx.fillText(bshow.toFixed(1) + 'm', W - pad, pad + 48);
+    ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
+    ctx.fillStyle = g.maxHeight > best && best > 0 ? '#e0357a' : '#1d1b2f'; ctx.fillText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
 
     // stamina bar
     const s = clamp(g.stam / 100, 0, 1);
-    const narrow = W < 780;
-    const bw = narrow ? Math.min(420, W - 36) : Math.min(420, W * 0.44), bh = 20, bx = W / 2 - bw / 2, by = narrow ? Hh - 52 - 18 - 30 : Hh - 44;
+    const L = hudLayout();
+    const narrow = L.narrow, kw = L.kw, kh = L.kh;
+    const bw = narrow ? Math.min(420, W - pl - pr) : Math.min(420, L.mid), bh = 20, bx = W / 2 - bw / 2, by = narrow ? Hh - pb - kh - 30 : Hh - pb - kh / 2 - 6;
     ctx.textAlign = 'center';
     ctx.font = '900 13px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.85)';
     const status = s > 0.7 ? 'FRESH' : s > 0.45 ? 'WARMED UP' : s > 0.25 ? 'TIRED' : s > 0.05 ? 'COOKED' : 'EXHAUSTED';
@@ -1144,27 +1238,27 @@ if (typeof document !== 'undefined') (function boot() {
     for (let i = 1; i < 10; i++) { ctx.fillStyle = 'rgba(29,27,47,0.35)'; ctx.fillRect(bx + bw * i / 10 - 1, by, 2, bh); }
 
     // key indicators
-    const kw = 142, kh = 52;
     for (const h of g.hands) {
       const left = h.side === 0;
-      const x = left ? pad : W - pad - kw, y = Hh - kh - pad;
+      const x = left ? pl : W - pr - kw, y = Hh - kh - pb;
       const col2 = left ? '#2f7bff' : '#ff8a1f';
       ctx.fillStyle = '#1d1b2f'; roundRect(x, y + (h.key ? 3 : 0), kw, kh, 10); ctx.fill();
       ctx.fillStyle = h.key ? col2 : '#fff'; roundRect(x + 3, y + 3 + (h.key ? 3 : 0), kw - 6, kh - 6 - (h.key ? 0 : 4), 8); ctx.fill();
       ctx.textAlign = 'center';
       ctx.fillStyle = h.key ? '#fff' : col2; ctx.font = '900 20px Trebuchet MS, sans-serif';
-      ctx.fillText(left ? 'S ← LEFT' : 'RIGHT → K', x + kw / 2, y + 26 + (h.key ? 3 : 0));
+      ctx.fillText(isTouch ? (left ? '◀ HOLD' : 'HOLD ▶') : (left ? 'S ← LEFT' : 'RIGHT → K'), x + kw / 2, y + (isTouch ? 32 : 26) + (h.key ? 3 : 0));
       const st = h.grip ? (h.key ? 'PULLING' : 'HANGING') : (h.key || h.reachT > 0 ? 'REACHING' : 'FREE');
       ctx.font = 'bold 11px Trebuchet MS, sans-serif'; ctx.fillStyle = h.key ? '#fff' : 'rgba(29,27,47,0.7)';
-      ctx.fillText(st, x + kw / 2, y + 42 + (h.key ? 3 : 0));
+      ctx.fillText((isTouch ? (left ? 'LEFT ARM · ' : 'RIGHT ARM · ') : '') + st, x + kw / 2, y + (isTouch ? 52 : 42) + (h.key ? 3 : 0));
     }
     // tips
-    if (mode === 'play' && g.state === 'play' && g.maxHeight < 3) {
-      const tips = ['Hold S + K to pull up.', 'Release both at the top to HOP to the next bar!', 'Your hands grab any bar they pass. Rest to recover stamina.'];
+    if (mode === 'play' && g.state === 'play' && g.maxHeight < 3 && !paused) {
+      const tips = [isTouch ? 'Hold BOTH sides of the screen to pull up.' : 'Hold S + K to pull up.', 'Release both at the top to HOP to the next bar!', 'Your hands grab any bar they pass. Rest to recover stamina.'];
       const t = tips[Math.floor(tipT / 3.5) % tips.length];
       ctx.font = 'bold 16px Trebuchet MS, sans-serif'; ctx.textAlign = 'center';
-      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.strokeText(t, W / 2, 124);
-      ctx.fillStyle = '#1d1b2f'; ctx.fillText(t, W / 2, 124);
+      if (ctx.measureText(t).width > W - 24) ctx.font = 'bold ' + Math.max(10, Math.floor(16 * (W - 24) / ctx.measureText(t).width)) + 'px Trebuchet MS, sans-serif';
+      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.strokeText(t, W / 2, pt + (isTouch && W < 520 ? 150 : 106));
+      ctx.fillStyle = '#1d1b2f'; ctx.fillText(t, W / 2, pt + (isTouch && W < 520 ? 150 : 106));
     }
   }
 

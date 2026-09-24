@@ -17,6 +17,8 @@ Open `index.html` in any modern desktop browser. That's it: one self-contained f
 | Esc / P | Pause |
 | M | Mute |
 
+**Touch (phones and tablets):** hold the **left half** of the screen for S and the **right half** for K. Both thumbs together give the full pull-up. Tap ❚❚ to pause, then tap anywhere to resume. Works in portrait and landscape, with haptic buzzes on slips and falls where the device supports it.
+
 **How to climb:** hold a key to pull with that arm. When you **release** a key while that arm is bent (you've pulled yourself up), the hand lets go and throws itself upward. A free hand grabs any bar it passes, as long as it isn't moving too fast for your current grip.
 
 - Hold S+K, then release both at the top to **hop** the whole body up to the next bar.
