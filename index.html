@@ -21,9 +21,9 @@
     -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; touch-action: none; }
   #safe { position: fixed; visibility: hidden; pointer-events: none; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-  .touch-only { display: none; }
-  body.touch .touch-only { display: block; }
-  body.touch .kb-only { display: none; }
+  body:not(.touch) .touch-only { display: none !important; }
+  body.touch .kb-only { display: none !important; }
+  .overlay > .card { margin: auto; } /* centres, but scrolls instead of clipping when tall */
   .overlay {
     position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
     background: rgba(29, 27, 47, 0.35); padding: 16px; transition: opacity .2s;
@@ -70,6 +70,18 @@
   .newbest { display: inline-block; background: #ffd23f; border: 3px solid var(--ink); border-radius: 8px; padding: 2px 10px; font-weight: 900; transform: rotate(-3deg); margin: 4px 0; }
   .quip { font-size: 21px; font-style: italic; font-weight: bold; margin: 14px 0 20px; min-height: 1.4em; }
   .cause { font-size: 14px; opacity: .7; margin-top: -10px; margin-bottom: 14px; }
+  button.daily { background: #2f7bff; font-size: 20px; padding: 10px 24px; }
+  .dailyinfo { font-size: 13px; font-weight: bold; opacity: .75; min-height: 1.2em; margin-top: 2px; }
+  .challenge { background: #ffd23f; border: 3px solid var(--ink); border-radius: 14px; padding: 10px 12px 12px; margin: -6px 0 16px; transform: rotate(1deg); }
+  #menu.has-challenge .tips, #menu.has-challenge .sub { display: none; }
+  .challenge .ctitle { font-weight: 900; letter-spacing: 1px; }
+  .challenge #cText { font-size: 15px; margin: 4px 0 8px; }
+  .challenge button { font-size: 18px; padding: 8px 18px; }
+  .omode { font-size: 13px; font-weight: 900; letter-spacing: 2px; opacity: .6; }
+  .vs { font-weight: 900; font-size: 18px; margin: 4px 0 -4px; min-height: 0; }
+  .vs.win { color: #1f9d4f; } .vs.lose { color: #c2410c; }
+  .more { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 8px; }
+  .more button { font-size: 14px; padding: 8px 12px; margin: 0; box-shadow: 0 4px 0 var(--ink); background: #fff; color: var(--ink); }
   .touchpads { display: flex; gap: 10px; justify-content: center; margin: 0 auto 12px; max-width: 360px; }
   .touchpads div { flex: 1; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 6px; font-weight: 900; font-size: 15px; line-height: 1.25; }
   .touchpads .l { background: #dbe8ff; color: var(--left); }
@@ -92,6 +104,12 @@
 
 <div id="menu" class="overlay">
   <div class="card">
+    <div id="challenge" class="challenge" style="display:none">
+      <div class="ctitle">🏁 CHALLENGE RECEIVED</div>
+      <div id="cText"></div>
+      <button id="raceBtn">Race their ghost</button>
+      <button id="watchBtn" class="secondary">Watch it</button>
+    </div>
     <h1>Raising<br>the <span class="up">Bar</span><span class="bar"></span></h1>
     <div class="sub">How high can you go?</div>
     <div class="controls kb-only">
@@ -110,25 +128,29 @@
       Two keys. One ladder. How hard could it be?
     </div>
     <button id="startBtn">Start</button>
-    <div class="hint kb-only">Enter / Space to start &middot; M to mute &middot; Esc to pause &middot; touch works too</div>
+    <button id="dailyBtn" class="daily">Daily Ladder</button>
+    <div id="dailyInfo" class="dailyinfo"></div>
+    <div class="hint kb-only">Enter / Space to start &middot; D for the daily &middot; M to mute &middot; Esc to pause &middot; touch works too</div>
     <div class="hint touch-only">Tip: play in landscape or portrait &middot; ❚❚ button to pause</div>
   </div>
 </div>
 
 <div id="over" class="overlay hidden">
   <div class="card">
-    <p class="fell">YOU FELL</p>
+    <div id="oMode" class="omode"></div>
+    <p class="fell" id="oTitle">YOU FELL</p>
     <div id="newBest" class="newbest" style="display:none">NEW BEST!</div>
     <div class="stats">
       <div class="stat"><div class="lbl">HEIGHT</div><div class="val" id="oHeight">0.0m</div></div>
-      <div class="stat"><div class="lbl">BEST</div><div class="val" id="oBest">0.0m</div></div>
+      <div class="stat"><div class="lbl" id="oBestLbl">BEST</div><div class="val" id="oBest">0.0m</div></div>
       <div class="stat"><div class="lbl">SCORE</div><div class="val" id="oScore">0</div></div>
     </div>
+    <div class="vs" id="oVs"></div>
     <div class="quip" id="oQuip"></div>
     <div class="cause" id="oCause"></div>
-    <button id="retryBtn">Try Again</button><br>
-    <button id="menuBtn" class="secondary">Main Menu</button>
-    <div class="hint kb-only">Enter / Space / R to retry</div>
+    <div id="oMain"></div>
+    <div id="oMore" class="more"></div>
+    <div class="hint kb-only" id="oHint">Enter / Space / R to retry</div>
   </div>
 </div>
 
@@ -142,6 +164,21 @@
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
+
+// Deterministic maths for the simulation. Only +,-,*,/ and sqrt are guaranteed to give
+// bit-identical results in every JS engine, so replays and ghosts stay in sync across
+// browsers. (Math.sin/cos/pow/hypot may differ in the last bits between engines.)
+const hyp = (x, y) => Math.sqrt(x * x + y * y);
+const pow175 = (x) => { const r = Math.sqrt(x); return x * r * Math.sqrt(r); }; // x^1.75
+const pow225 = (x) => x * x * Math.sqrt(Math.sqrt(x));                           // x^2.25
+const PI = 3.141592653589793;
+function dsin(x) {
+  x = x - 2 * PI * Math.floor((x + PI) / (2 * PI)); // -> [-PI, PI)
+  if (x > PI / 2) x = PI - x; else if (x < -PI / 2) x = -PI - x;
+  const x2 = x * x;
+  return x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110 * (1 - x2 / 156))))));
+}
+const dcos = (x) => dsin(x + PI / 2);
 
 function mulberry32(a) {
   return function () {
@@ -187,7 +224,7 @@ function makeBody(by) {
   const pts = P.map((p, i) => ({ x: p[0], y: by + p[1], px: p[0], py: by + p[1], m: MASS[i], im: 1 / MASS[i], fx: 0, fy: 0 }));
   const sticks = [];
   const S = (a, b, L) => {
-    sticks.push({ a, b, L: L != null ? L : Math.hypot(pts[a].x - pts[b].x, pts[a].y - pts[b].y) });
+    sticks.push({ a, b, L: L != null ? L : hyp(pts[a].x - pts[b].x, pts[a].y - pts[b].y) });
   };
   [[NECK, LSH], [NECK, RSH], [LSH, RSH], [LSH, PEL], [RSH, PEL], [NECK, PEL], [PEL, LHIP], [PEL, RHIP],
    [LHIP, RHIP], [LSH, LHIP], [RSH, RHIP], [LSH, RHIP], [RSH, LHIP], [HEAD, NECK], [HEAD, LSH], [HEAD, RSH]]
@@ -238,19 +275,19 @@ function newGame(seed, state) {
     legOff: 0, tuck: 0, trem: { x: 0, y: 0 },
     height: 0, maxHeight: 0, maxBar: 0, bonus: 0, hops: 0, catches: 0,
     events: [], deathT: 0, deathCause: '', floorHit: false, lastSlipExhausted: false,
-    nextMilestone: 5, pullTime: 0,
+    nextMilestone: 5, pullTime: 0, n: 0,
   };
   addBar(g); genBars(g, 14);
   g.hands[0].grip = { bar: g.bars[0], x: -0.27 };
   g.hands[1].grip = { bar: g.bars[0], x: 0.27 };
   const st = g.state; g.state = 'menu';
   for (let i = 0; i < 120; i++) stepSim(g, CFG.DT); // settle
-  g.state = st; g.events.length = 0; g.t = 0; g.stam = 100;
+  g.state = st; g.events.length = 0; g.t = 0; g.n = 0; g.stam = 100;
   g.headStartY = g.body.pts[HEAD].y;
   return g;
 }
 
-function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function dist(a, b) { return hyp(a.x - b.x, a.y - b.y); }
 
 function release(g, h, isThrow) {
   const P = g.body.pts, hp = P[h.idx];
@@ -268,7 +305,7 @@ function release(g, h, isThrow) {
   }
 }
 
-function grab(g, h, b, x, speed) {
+function grab(g, h, b, x, speed, vy) {
   const P = g.body.pts, hp = P[h.idx];
   h.grip = { bar: b, x }; h.graceT = 0.2; h.holdT = 0; h.reachT = 0;
   hp.x = hp.px = x; hp.y = hp.py = b.y + b.o;
@@ -281,7 +318,9 @@ function grab(g, h, b, x, speed) {
     g.bonus += 25 + skipped * 40;
     g.maxBar = b.i;
   }
-  g.events.push({ type: 'catch', side: h.side, x, y: b.y, speed, newBar, bar: b.i });
+  const other = g.hands[1 - h.side];
+  g.events.push({ type: 'catch', side: h.side, x, y: b.y, speed, vy: vy || 0, newBar, bar: b.i,
+    airT: g.noGripT, alone: !other.grip, stam: g.stam });
 }
 
 function die(g, cause) {
@@ -291,15 +330,15 @@ function die(g, cause) {
   g.events.push({ type: 'die', cause });
 }
 
-function rot(vx, vy, a) { const c = Math.cos(a), s = Math.sin(a); return [vx * c - vy * s, vx * s + vy * c]; }
+function rot(vx, vy, a) { const c = dcos(a), s = dsin(a); return [vx * c - vy * s, vx * s + vy * c]; }
 
 function stepSim(g, dt) {
   const B = g.body, P = B.pts, H = g.hands, Gv = CFG.G;
   const alive = g.state === 'play' || g.state === 'menu';
   const playing = g.state === 'play';
-  g.t += dt;
+  g.t += dt; g.n++;
   const s = clamp(g.stam / 100, 0, 1);
-  const strength = 0.2 + 0.8 * (1 - Math.pow(1 - s, 1.7));
+  const strength = 0.2 + 0.8 * (1 - pow175(1 - s));
   if (!alive) for (const h of H) h.key = false;
   const both = H[0].key && H[1].key;
 
@@ -324,7 +363,7 @@ function stepSim(g, dt) {
   // arms
   for (const h of H) {
     const sh = P[h.sh], hp = P[h.idx];
-    const dx = hp.x - sh.x, dy = hp.y - sh.y, d = Math.hypot(dx, dy) || 1e-6;
+    const dx = hp.x - sh.x, dy = hp.y - sh.y, d = hyp(dx, dy) || 1e-6;
     h.pullF = 0;
     if (!alive) continue;
     if (h.grip && h.key) {
@@ -333,11 +372,11 @@ function stepSim(g, dt) {
       sh.fx += dx / d * f; sh.fy += dy / d * f;
       h.pullF = f;
     } else if (!h.grip && (h.key || h.reachT > 0)) {
-      const ox = h.side ? 0.27 : -0.27, oy = 1, ol = Math.hypot(ox, oy);
+      const ox = h.side ? 0.27 : -0.27, oy = 1, ol = hyp(ox, oy);
       const tx = sh.x + ox / ol * 0.6, ty = sh.y + oy / ol * 0.6;
       const rvx = ((hp.x - hp.px) - (sh.x - sh.px)) / dt, rvy = ((hp.y - hp.py) - (sh.y - sh.py)) / dt;
       let fx = (tx - hp.x) * CFG.REACH_K - rvx * 22, fy = (ty - hp.y) * CFG.REACH_K - rvy * 22;
-      const fm = Math.hypot(fx, fy), cap = CFG.REACH_MAX * (0.45 + 0.55 * strength);
+      const fm = hyp(fx, fy), cap = CFG.REACH_MAX * (0.45 + 0.55 * strength);
       if (fm > cap) { fx *= cap / fm; fy *= cap / fm; }
       hp.fx += fx; hp.fy += fy; sh.fx -= fx * 0.5; sh.fy -= fy * 0.5;
     }
@@ -346,7 +385,7 @@ function stepSim(g, dt) {
   // legs: muscle tone + kicks. S swings legs right, K swings left, both = frog tuck
   {
     let dxn = P[PEL].x - P[NECK].x, dyn = P[PEL].y - P[NECK].y;
-    const dl = Math.hypot(dxn, dyn) || 1; dxn /= dl; dyn /= dl;
+    const dl = hyp(dxn, dyn) || 1; dxn /= dl; dyn /= dl;
     let offT = 0, tuckT = 0;
     if (alive) {
       if (both) tuckT = 1;
@@ -387,7 +426,7 @@ function stepSim(g, dt) {
     const fx = ry * w * c, fy = -rx * w * c; // opposes rotation
     n.fx += fx; n.fy += fy; pl.fx -= fx; pl.fy -= fy;
 
-    const ta = 70 * Math.pow(1 - s, 2.2);
+    const ta = 70 * pow225(1 - s);
     g.trem.x += ((g.trng() * 2 - 1) - g.trem.x) * 0.25;
     g.trem.y += ((g.trng() * 2 - 1) - g.trem.y) * 0.25;
     for (const i of [LSH, RSH, LEL, REL]) {
@@ -400,7 +439,7 @@ function stepSim(g, dt) {
   const dt2 = dt * dt;
   for (const p of P) {
     let vx = (p.x - p.px) * CFG.DAMP, vy = (p.y - p.py) * CFG.DAMP;
-    const vm = Math.hypot(vx, vy);
+    const vm = hyp(vx, vy);
     if (vm > 0.2) { vx *= 0.2 / vm; vy *= 0.2 / vm; }
     p.px = p.x; p.py = p.y;
     p.x += vx + p.fx * p.im * dt2;
@@ -417,7 +456,7 @@ function stepSim(g, dt) {
   for (let it = 0; it < CFG.ITERS; it++) {
     for (const st of sticks) {
       const a = P[st.a], b = P[st.b];
-      const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1e-9;
+      const dx = b.x - a.x, dy = b.y - a.y, d = hyp(dx, dy) || 1e-9;
       const wa = W(st.a), wb = W(st.b), ws = wa + wb;
       if (ws === 0) continue;
       const k = (d - st.L) / d / ws;
@@ -431,17 +470,17 @@ function stepSim(g, dt) {
     // elbows bend outward
     for (const h of H) {
       const sh = P[h.sh], hp = P[h.idx], el = P[h.el];
-      const dx = hp.x - sh.x, dy = hp.y - sh.y, d = Math.hypot(dx, dy) || 1e-6;
+      const dx = hp.x - sh.x, dy = hp.y - sh.y, d = hyp(dx, dy) || 1e-6;
       const half = d / 2;
       if (half >= CFG.ARM_SEG) continue;
       const off = Math.sqrt(CFG.ARM_SEG * CFG.ARM_SEG - half * half);
       let nx = -dy / d, ny = dx / d;
       // preferred bend: outward and toward the feet (pull-up elbows)
       const sg = h.side ? 1 : -1;
-      const ax = P[RSH].x - P[LSH].x, ay = P[RSH].y - P[LSH].y, al = Math.hypot(ax, ay) || 1;
-      const bx = P[PEL].x - P[NECK].x, by = P[PEL].y - P[NECK].y, bl = Math.hypot(bx, by) || 1;
+      const ax = P[RSH].x - P[LSH].x, ay = P[RSH].y - P[LSH].y, al = hyp(ax, ay) || 1;
+      const bx = P[PEL].x - P[NECK].x, by = P[PEL].y - P[NECK].y, bl = hyp(bx, by) || 1;
       const prx = sg * ax / al + bx / bl * 0.8, pry = sg * ay / al + by / bl * 0.8;
-      let dot = (nx * prx + ny * pry) / Math.hypot(prx, pry);
+      let dot = (nx * prx + ny * pry) / hyp(prx, pry);
       if (dot < 0) { nx = -nx; ny = -ny; dot = -dot; }
       const tx = sh.x + dx / 2 + nx * off, ty = sh.y + dy / 2 + ny * off;
       const kk = 0.04 * dot; // fades out near the ambiguous direction, so no snapping
@@ -491,7 +530,7 @@ function stepSim(g, dt) {
 
   const nG = (H[0].grip ? 1 : 0) + (H[1].grip ? 1 : 0);
   if (nG > 0) {
-    const inst = Math.min(Math.hypot(Fx, Fy) / WEIGHT / nG, 3.2);
+    const inst = Math.min(hyp(Fx, Fy) / WEIGHT / nG, 3.2);
     let gripMax = 1.0 + 2.2 * s - g.exhaustT * 0.35;
     for (const h of H) {
       if (!h.grip) continue;
@@ -522,7 +561,7 @@ function stepSim(g, dt) {
       if (h.grip || h.cool > 0) continue;
       const hp = P[h.idx];
       const lo = Math.min(hp.py, hp.y) - 0.05, hi = Math.max(hp.py, hp.y) + 0.05;
-      const vx = (hp.x - hp.px) / dt, vy = (hp.y - hp.py) / dt, sp = Math.hypot(vx, vy);
+      const vx = (hp.x - hp.px) / dt, vy = (hp.y - hp.py) / dt, sp = hyp(vx, vy);
       for (const b of g.bars) {
         const by = b.y + b.o;
         if (by < lo) continue;
@@ -535,9 +574,10 @@ function stepSim(g, dt) {
         const t = crossed ? s0 / (s0 - s1) : 1;
         const cx = lerp(hp.px, hp.x, t);
         if (cx < b.x0 - 0.05 || cx > b.x1 + 0.05) continue;
-        const limit = (vy > 0 ? 6 : 3.2) + 4.3 * s;
+        // the first bars forgive sloppier catches while you learn
+        const limit = (vy > 0 ? 6 : 3.2) + 4.3 * s + 2.5 * Math.max(0, 1 - b.i / 12);
         if (sp <= limit) {
-          grab(g, h, b, clamp(cx, b.x0 + 0.02, b.x1 - 0.02), sp);
+          grab(g, h, b, clamp(cx, b.x0 + 0.02, b.x1 - 0.02), sp, vy);
         } else {
           hp.py = hp.y + (hp.y - hp.py) * 0.3; // bounce off
           h.cool = 0.12; h.exclBar = b; h.exclT = 0.25;
@@ -601,7 +641,7 @@ function stepSim(g, dt) {
 
 function minDist(P, W, i, j, m) {
   const a = P[i], b = P[j];
-  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1e-9;
+  const dx = b.x - a.x, dy = b.y - a.y, d = hyp(dx, dy) || 1e-9;
   if (d >= m) return;
   const wa = W(i), wb = W(j), ws = wa + wb;
   if (!ws) return;
@@ -612,7 +652,104 @@ function minDist(P, W, i, j, m) {
 
 function score(g) { return Math.round(g.maxHeight * 100 + g.bonus); }
 
-globalThis.RTB = { CFG, newGame, stepSim, score, dist, HEAD, LSH, RSH, LH, RH };
+// 0 = releasing now does nothing, 1 = would let go but the body is already sinking (late),
+// 2 = would let go while still rising (the sweet spot for a hop).
+function throwReady(g, h) {
+  if (!h.grip || !h.key || h.holdT < CFG.THROW_HOLD) return 0;
+  const P = g.body.pts;
+  if (dist(P[h.sh], P[h.idx]) >= CFG.THROW_DIST) return 0;
+  const sh = P[h.sh];
+  return (sh.y - sh.py) / CFG.DT > 0.25 ? 2 : 1;
+}
+
+// ---------------- Replays ----------------
+// A run is fully determined by its ladder seed and the per-step S/K inputs, so a replay is
+// just the seed plus the steps where the inputs changed. Format (bytes, then base64url):
+// [version][kind][seed u32][day varint][total steps varint][changes: varint(delta*4 + bits)...]
+const REPLAY_VERSION = 1;
+function pushVarint(out, v) { while (v >= 128) { out.push((v & 127) | 128); v = Math.floor(v / 128); } out.push(v); }
+function readVarint(buf, pos) {
+  let v = 0, mul = 1, b;
+  do { if (pos.i >= buf.length) throw new Error('truncated'); b = buf[pos.i++]; v += (b & 127) * mul; mul *= 128; } while (b & 128);
+  return v;
+}
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+function toB64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | ((bytes[i + 1] || 0) << 8) | (bytes[i + 2] || 0);
+    s += B64[(n >> 18) & 63] + B64[(n >> 12) & 63];
+    if (i + 1 < bytes.length) s += B64[(n >> 6) & 63];
+    if (i + 2 < bytes.length) s += B64[n & 63];
+  }
+  return s;
+}
+function fromB64(str) {
+  const out = [];
+  for (let i = 0; i < str.length; i += 4) {
+    const c = [0, 1, 2, 3].map((k) => (i + k < str.length ? B64.indexOf(str[i + k]) : -1));
+    if (c[0] < 0 || c[1] < 0) throw new Error('bad replay');
+    const n = (c[0] << 18) | (c[1] << 12) | ((c[2] < 0 ? 0 : c[2]) << 6) | (c[3] < 0 ? 0 : c[3]);
+    out.push((n >> 16) & 255);
+    if (c[2] >= 0) out.push((n >> 8) & 255);
+    if (c[3] >= 0) out.push(n & 255);
+  }
+  return out;
+}
+// rec = { seed, kind: 'endless'|'daily', day, steps, changes: [[step, bits], ...] }
+function encodeReplay(rec) {
+  const out = [REPLAY_VERSION, rec.kind === 'daily' ? 1 : 0];
+  const sd = rec.seed >>> 0; out.push(sd >>> 24, (sd >>> 16) & 255, (sd >>> 8) & 255, sd & 255);
+  pushVarint(out, rec.day || 0); pushVarint(out, rec.steps);
+  let last = 0;
+  for (const [step, bits] of rec.changes) { pushVarint(out, (step - last) * 4 + bits); last = step; }
+  return toB64(out);
+}
+function decodeReplay(str) {
+  const b = fromB64(str);
+  if (b[0] !== REPLAY_VERSION) throw new Error('unsupported replay version');
+  const kind = b[1] === 1 ? 'daily' : 'endless';
+  const seed = ((b[2] << 24) | (b[3] << 16) | (b[4] << 8) | b[5]) >>> 0;
+  const pos = { i: 6 };
+  const day = readVarint(b, pos), steps = readVarint(b, pos);
+  const changes = []; let last = 0;
+  while (pos.i < b.length) { const v = readVarint(b, pos); last += Math.floor(v / 4); changes.push([last, v & 3]); }
+  return { seed, kind, day, steps, changes };
+}
+// Drives a game from a replay one step at a time.
+function makePlayback(rec) {
+  return { rec, i: 0, bits: 0 };
+}
+function playbackInputs(pb, step) {
+  const ch = pb.rec.changes;
+  while (pb.i < ch.length && ch[pb.i][0] <= step) { pb.bits = ch[pb.i][1]; pb.i++; }
+  return pb.bits;
+}
+// Apply a replay's inputs for the game's current step (call right before stepSim).
+function applyPlayback(g, pb) {
+  const bits = playbackInputs(pb, g.n), on = g.state === 'play';
+  g.hands[0].key = on && (bits & 1) > 0;
+  g.hands[1].key = on && (bits & 2) > 0;
+}
+// Fast-forward a whole replay without drawing it. Returns how high that run got.
+function simulateReplay(rec) {
+  const g = newGame(rec.seed, 'play'), pb = makePlayback(rec);
+  const cap = rec.steps + 600;
+  while (g.n < cap && !(g.state === 'dying' && g.deathT > 0.2)) { applyPlayback(g, pb); stepSim(g, CFG.DT); g.events.length = 0; }
+  return { maxHeight: g.maxHeight, bars: g.maxBar, died: g.state === 'dying' };
+}
+// Daily ladder: same seed for everyone on the same UTC date.
+const DAILY_EPOCH = Date.UTC(2026, 0, 1);
+function dayNumber(ms) { return Math.floor((ms - DAILY_EPOCH) / 86400000) + 1; }
+function dailySeed(day) {
+  let h = 2166136261 ^ day;
+  for (let i = 0; i < 4; i++) { h = Math.imul(h ^ (h >>> 15), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); h ^= h >>> 16; }
+  return h >>> 0;
+}
+
+globalThis.RTB = { CFG, newGame, stepSim, score, dist, throwReady, encodeReplay, decodeReplay, makePlayback, playbackInputs,
+  applyPlayback, simulateReplay,
+  dayNumber, dailySeed, HEAD, LSH, RSH, LH, RH };
 
 /* =====================================================================
    PRESENTATION: rendering, audio, input, UI
@@ -641,7 +778,7 @@ if (typeof document !== 'undefined') (function boot() {
   function saveBest() { try { localStorage.setItem('rtb_best', String(best)); } catch (e) {} }
 
   // ---------- audio ----------
-  let ac = null, master = null, muted = false, slowmo = 1; // slowmo < 1 drops pitch and stretches sounds for the replay
+  let ac = null, master = null, muted = false, slowmo = 1; // slowmo < 1 drops pitch and stretches sounds for the fall replay
   function initAudio() {
     if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
     try {
@@ -707,9 +844,11 @@ if (typeof document !== 'undefined') (function boot() {
     if (e.repeat) return;
     const k = e.key;
     if (k === 'm' || k === 'M') { muted = !muted; flash(muted ? 'MUTED' : 'SOUND ON'); return; }
-    if (mode === 'menu' && (k === 'Enter' || k === ' ')) { e.preventDefault(); startGame(); }
-    else if (mode === 'replay' && (k === 'Enter' || k === ' ' || k === 'r' || k === 'R' || k === 'Escape')) { e.preventDefault(); endReplay(); }
-    else if (mode === 'over' && (k === 'Enter' || k === ' ' || k === 'r' || k === 'R')) { e.preventDefault(); startGame(); }
+    if (mode === 'menu' && (k === 'Enter' || k === ' ')) { e.preventDefault(); if (challenge) raceReplay(challenge.rec, 'RIVAL'); else startEndless(); }
+    else if (mode === 'menu' && (k === 'd' || k === 'D')) startDaily();
+    else if (mode === 'over' && (k === 'Enter' || k === ' ' || k === 'r' || k === 'R')) { e.preventDefault(); if (overPrimary) overPrimary(); }
+    else if (mode === 'replay' && (k === 'Enter' || k === ' ' || k === 'Escape')) { e.preventDefault(); skipReplay(); }
+    else if (mode === 'fallcam' && (k === 'Enter' || k === ' ' || k === 'r' || k === 'R' || k === 'Escape')) { e.preventDefault(); endFallCam(); }
     else if (mode === 'play' && (k === 'Escape' || k === 'p' || k === 'P')) paused = !paused;
     else if (mode === 'play' && paused && (k === 'Enter' || k === ' ')) paused = false;
   });
@@ -729,7 +868,8 @@ if (typeof document !== 'undefined') (function boot() {
     e.preventDefault();
     initAudio();
     if (e.pointerType === 'touch') setTouchMode(true);
-    if (mode === 'replay' && replay.real > 0.4) { endReplay(); return; } // grace period so a panicked grab doesn't skip it
+    if (mode === 'replay') { skipReplay(); return; }
+    if (mode === 'fallcam') { if (fc.real > 0.4) endFallCam(); return; } // grace period so a panicked grab doesn't skip it
     if (mode !== 'play') return;
     if (paused) { paused = false; return; } // tap anywhere to resume
     if (isTouch && inRect(e.clientX, e.clientY, pauseBtn())) { paused = true; releasePointers(); return; }
@@ -749,13 +889,14 @@ if (typeof document !== 'undefined') (function boot() {
   function touchHeld(side) { for (const v of pointers.values()) if (v === side) return true; return false; }
   const inputS = () => keys.S || touchHeld('S');
   const inputK = () => keys.K || touchHeld('K');
-  function buzz(ms) { if (mode === 'replay') return; try { if (isTouch && navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+  function buzz(ms) { if (mode === 'fallcam') return; try { if (isTouch && navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
 
   function suspend() { keys.S = keys.K = false; releasePointers(); if (mode === 'play') paused = true; }
   window.addEventListener('blur', suspend);
   document.addEventListener('visibilitychange', () => { if (document.hidden) suspend(); });
 
   // ---------- game state ----------
+  // mode: 'menu' | 'play' | 'fallcam' (slow-mo replay of a fall) | 'replay' (watching a recorded run) | 'over' (result card)
   let mode = 'menu', paused = false;
   let g = newGame((Math.random() * 1e9) | 0, 'menu');
   let cam = { x: 0, y: g.body.pts[HEAD].y - 0.6, shake: 0 };
@@ -764,23 +905,113 @@ if (typeof document !== 'undefined') (function boot() {
   let bubble = null, warnCool = 0, tipT = 0, flashMsg = null, newBestThisRun = false;
   const tie = [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }];
 
-  function startGame() {
+  // run = what is being played: { kind: 'endless'|'daily'|'challenge', seed, day, ghost, ghostName, ghostMax }
+  let run = null;
+  let rec = null;        // recording of the current run
+  let lastRec = null;    // the finished run, for watch/share/race
+  let gh = null;         // ghost: { g, pb, name, max }
+  let pb = null;         // playback when mode === 'replay'
+  let watching = null;   // { rec, name } of the replay being watched
+  let slowT = 0;         // slow-motion time left (real seconds)
+  let challenge = null;  // replay received through a link: { rec, code, max }
+
+  const today = dayNumber(Date.now());
+  let tutDone = false;
+  try { tutDone = localStorage.getItem('rtb_tut') === '1'; } catch (e) {}
+  function loadDaily() {
+    try { const d = JSON.parse(localStorage.getItem('rtb_daily') || 'null'); if (d && d.day === today) return d; } catch (e) {}
+    return { day: today, best: 0, replay: null };
+  }
+  let daily = loadDaily();
+  function saveDaily() { try { localStorage.setItem('rtb_daily', JSON.stringify(daily)); } catch (e) {} }
+
+  function resetFx() {
+    particles = []; texts = []; bubble = null; newBestThisRun = false; paused = false; slowT = 0; releasePointers(); prevBestFlag = false;
+    tape.length = 0; tapeHead = 0; fc = null; zoom = 1; scale = baseScale; slowmo = 1;
+  }
+  function hideOverlays() { $('menu').classList.add('hidden'); $('over').classList.add('hidden'); }
+
+  function makeGhost(r, name) {
+    if (!r) return null;
+    return { g: newGame(r.seed, 'play'), pb: makePlayback(r), name, max: simulateReplay(r).maxHeight };
+  }
+  function startRun(cfg) {
     initAudio();
-    g = newGame((Math.random() * 1e9) | 0, 'play');
-    particles = []; texts = []; bubble = null; newBestThisRun = false; paused = false; releasePointers();
-    tape.length = 0; tapeHead = 0; zoom = 1; scale = baseScale; slowmo = 1;
-    mode = 'play';
-    $('menu').classList.add('hidden'); $('over').classList.add('hidden');
+    run = cfg;
+    g = newGame(cfg.seed, 'play');
+    gh = makeGhost(cfg.ghost, cfg.ghostName);
+    const rk = cfg.ghost ? cfg.ghost.kind : cfg.kind === 'daily' ? 'daily' : 'endless';
+    const rd = cfg.ghost ? cfg.ghost.day : cfg.day || 0;
+    rec = { seed: cfg.seed, kind: rk, day: rd, steps: 0, changes: [], last: 0 };
+    resetFx(); mode = 'play'; hideOverlays();
+    cam.y = g.body.pts[HEAD].y - 0.6;
+  }
+  function startEndless() { startRun({ kind: 'endless', seed: (Math.random() * 4294967296) >>> 0 }); }
+  function startDaily() {
+    daily = loadDaily();
+    let ghost = null;
+    if (daily.replay) { try { ghost = decodeReplay(daily.replay); } catch (e) { ghost = null; } }
+    startRun({ kind: 'daily', seed: dailySeed(today), day: today, ghost, ghostName: 'YOUR BEST' });
+  }
+  function raceReplay(r, name) { startRun({ kind: 'challenge', seed: r.seed, day: r.day, ghost: r, ghostName: name }); }
+  function retry() {
+    if (!run || run.kind === 'endless') startEndless();
+    else if (run.kind === 'daily') startDaily();
+    else startRun(run);
+  }
+  function startReplay(r, name) {
+    initAudio();
+    watching = { rec: r, name };
+    g = newGame(r.seed, 'play'); pb = makePlayback(r); gh = null;
+    resetFx(); mode = 'replay'; hideOverlays();
     cam.y = g.body.pts[HEAD].y - 0.6;
   }
   function toMenu() {
-    mode = 'menu'; zoom = 1; scale = baseScale; slowmo = 1;
+    mode = 'menu'; gh = null; run = null; fc = null; zoom = 1; scale = baseScale; slowmo = 1;
     g = newGame((Math.random() * 1e9) | 0, 'menu');
+    refreshMenu();
     $('over').classList.add('hidden'); $('menu').classList.remove('hidden');
   }
-  $('startBtn').onclick = startGame;
-  $('retryBtn').onclick = startGame;
-  $('menuBtn').onclick = toMenu;
+  function refreshMenu() {
+    daily = loadDaily();
+    $('dailyBtn').textContent = 'Daily Ladder #' + today;
+    $('dailyInfo').textContent = daily.best > 0 ? "Today's best: " + daily.best.toFixed(1) + 'm · race your ghost' : 'Same ladder for everyone today';
+    if (challenge) {
+      $('challenge').style.display = 'block'; $('menu').classList.add('has-challenge');
+      const where = challenge.rec.kind === 'daily' ? 'Daily Ladder #' + challenge.rec.day : 'their ladder';
+      $('cText').textContent = 'Someone climbed ' + challenge.max.toFixed(1) + 'm on ' + where + '. Can you beat them?';
+    } else { $('challenge').style.display = 'none'; $('menu').classList.remove('has-challenge'); }
+  }
+  $('startBtn').onclick = startEndless;
+  $('dailyBtn').onclick = startDaily;
+  $('raceBtn').onclick = () => raceReplay(challenge.rec, 'RIVAL');
+  $('watchBtn').onclick = () => startReplay(challenge.rec, 'RIVAL');
+
+  // ---------- replay links ----------
+  function replayUrl(code) { return location.href.split('#')[0] + '#r=' + code; }
+  async function shareRun(r, height) {
+    const code = encodeReplay(r), url = replayUrl(code);
+    const where = r.kind === 'daily' ? 'Daily Ladder #' + r.day : 'Raising the Bar';
+    const text = 'I climbed ' + height.toFixed(1) + 'm on ' + where + '. Think you can beat my ghost?';
+    const local = location.protocol === 'file:';
+    try {
+      if (isTouch && navigator.share && !local) { await navigator.share({ title: 'Raising the Bar', text, url }); return; }
+      await navigator.clipboard.writeText(text + ' ' + url);
+      flash(local ? 'Link copied (host the game online so friends can open it)' : 'Challenge link copied!');
+    } catch (e) {
+      window.prompt('Copy this challenge link:', url);
+    }
+  }
+  function readHashReplay() {
+    const m = /[#&]r=([A-Za-z0-9_-]+)/.exec(location.hash);
+    if (!m) return;
+    try {
+      const r = decodeReplay(m[1]);
+      challenge = { rec: r, code: m[1], max: simulateReplay(r).maxHeight };
+    } catch (e) { flash("That replay link didn't work"); }
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  }
+  readHashReplay(); refreshMenu();
 
   const QUIPS = [
     'BAR NONE? More like BARF.', 'You raised the bar too far.', 'Gravity wins again.', 'Absolutely no pull-up.',
@@ -793,26 +1024,97 @@ if (typeof document !== 'undefined') (function boot() {
   ];
   const Q_FLOOR = ["You didn't even leave the ground.", 'That was more of a sit-down.', 'Technically, you did go up. Briefly.', 'The mat thanks you for your visit.'];
   const Q_EXH = ['Your arms have left the chat.', 'Stamina: 0. Regret: 100.', 'Should have rested. Just saying.', 'Noodle arms engaged.'];
+  const Q_GHOST_WIN = ['The ghost has been busted.', 'You out-climbed a memory.', 'Ghost: humbled.'];
   const pick = (a) => a[(Math.random() * a.length) | 0];
+
+  function btn(label, fn, cls) { const b = document.createElement('button'); b.textContent = label; b.onclick = fn; if (cls) b.className = cls; return b; }
+  let overPrimary = null;
+  function setButtons(main, more) {
+    const m = $('oMain'), o = $('oMore');
+    m.innerHTML = ''; o.innerHTML = '';
+    m.appendChild(main); overPrimary = main.onclick;
+    for (const b of more) o.appendChild(b);
+  }
+  function modeLabel() {
+    if (!run) return '';
+    if (run.kind === 'daily') return 'DAILY LADDER #' + run.day;
+    if (run.kind === 'challenge') return 'GHOST RACE vs ' + run.ghostName;
+    return 'ENDLESS';
+  }
 
   function showOver() {
     mode = 'over';
     const h = g.maxHeight;
+    rec.steps = g.n;
+    lastRec = { seed: rec.seed, kind: rec.kind, day: rec.day, steps: rec.steps, changes: rec.changes };
     if (h > best + 0.05) { best = h; saveBest(); newBestThisRun = true; }
+    let bestLbl = 'BEST', bestVal = best;
+    if (rec.kind === 'daily' && rec.day === today) {
+      daily = loadDaily();
+      if (h > daily.best) { daily.best = h; daily.replay = encodeReplay(lastRec); saveDaily(); newBestThisRun = true; }
+      bestLbl = "TODAY'S BEST"; bestVal = daily.best;
+    }
+    $('oMode').textContent = modeLabel();
+    $('oTitle').textContent = 'YOU FELL';
     $('oHeight').textContent = h.toFixed(1) + 'm';
-    $('oBest').textContent = best.toFixed(1) + 'm';
+    $('oBestLbl').textContent = bestLbl;
+    $('oBest').textContent = bestVal.toFixed(1) + 'm';
     $('oScore').textContent = score(g);
     $('newBest').style.display = newBestThisRun && h > 1 ? 'inline-block' : 'none';
+    const vs = $('oVs'); vs.className = 'vs'; vs.textContent = '';
     let q = pick(QUIPS);
-    if (g.deathCause === 'floor' && h < 1.5) q = pick(Q_FLOOR);
-    else if (g.deathCause === 'exhausted' && Math.random() < 0.6) q = pick(Q_EXH);
+    if (gh) {
+      const diff = h - gh.max;
+      if (diff > 0.05) { vs.className = 'vs win'; vs.textContent = 'You beat ' + gh.name + ' by ' + diff.toFixed(1) + 'm!'; q = pick(Q_GHOST_WIN); }
+      else vs.className = 'vs lose', vs.textContent = (-diff).toFixed(1) + 'm short of ' + gh.name + ' (' + gh.max.toFixed(1) + 'm)';
+    }
+    if (g.deathCause === 'floor' && h < 0.5) q = pick(Q_FLOOR);
+    else if (g.deathCause === 'exhausted' && Math.random() < 0.5) q = pick(Q_EXH);
     $('oQuip').textContent = '“' + q + '”';
     const causes = { floor: 'Cause: met the floor', exhausted: 'Cause: ran out of stamina', fall: 'Cause: missed the catch' };
     $('oCause').textContent = (causes[g.deathCause] || '') + ' · Bars climbed: ' + g.maxBar + (g.hops ? ' · Hops: ' + g.hops : '');
+    const r = lastRec;
+    setButtons(btn('Try Again', retry), [
+      btn('▶ Watch replay', () => startReplay(r, 'YOU')),
+      btn('👻 Race this run', () => raceReplay(r, 'YOUR GHOST')),
+      btn('🔗 Share challenge', () => shareRun(r, h)),
+      btn('Main menu', toMenu),
+    ]);
+    $('oHint').textContent = 'Enter / Space / R to retry';
     $('over').classList.remove('hidden');
   }
+  function showReplayEnd() {
+    mode = 'over';
+    const r = watching.rec, h = g.maxHeight, own = watching.name === 'YOU';
+    run = null;
+    $('oMode').textContent = r.kind === 'daily' ? 'DAILY LADDER #' + r.day : 'REPLAY';
+    $('oTitle').textContent = own ? 'INSTANT REPLAY' : 'THEIR RUN';
+    $('oHeight').textContent = h.toFixed(1) + 'm';
+    $('oBestLbl').textContent = 'YOUR BEST';
+    $('oBest').textContent = best.toFixed(1) + 'm';
+    $('oScore').textContent = score(g);
+    $('newBest').style.display = 'none';
+    $('oVs').textContent = ''; $('oVs').className = 'vs';
+    $('oQuip').textContent = own ? '“Look at that form. Truly something.”' : '“Now you know how it’s done. Or how not to.”';
+    $('oCause').textContent = 'Bars climbed: ' + g.maxBar + (g.hops ? ' · Hops: ' + g.hops : '');
+    setButtons(btn(own ? '👻 Race this run' : 'Race their ghost', () => raceReplay(r, own ? 'YOUR GHOST' : 'RIVAL')), [
+      btn('▶ Watch again', () => startReplay(r, watching.name)),
+      btn('🔗 Share', () => shareRun(r, h)),
+      btn('New run', startEndless),
+      btn('Main menu', toMenu),
+    ]);
+    $('oHint').textContent = 'Enter / Space to race';
+    $('over').classList.remove('hidden');
+  }
+  function skipReplay() {
+    if (mode !== 'replay') return;
+    // fast-forward to where the run ends
+    const cap = watching.rec.steps + 600;
+    while (g.n < cap && !(g.state === 'dying' && g.deathT > 0.5)) { applyPlayback(g, pb); stepSim(g, CFG.DT); g.events.length = 0; }
+    showReplayEnd();
+  }
 
-  function flash(t) { flashMsg = { t, life: 1.2 }; }
+  function flash(t) { flashMsg = { t, life: 2 }; }
   function addText(x, y, t, color, size) { texts.push({ x, y, t, color: color || '#fff', size: size || 26, life: 1.1, max: 1.1 }); }
   function puff(x, y, n, color, spd, size) {
     for (let i = 0; i < n; i++) {
@@ -828,13 +1130,20 @@ if (typeof document !== 'undefined') (function boot() {
   }
   function fx(e) {
     switch (e.type) {
-      case 'catch':
+      case 'catch': {
         SFX.grab(e.speed); puff(e.x, e.y, 8, '#ffffff', 1.2, 0.035);
-        if (e.newBar) {
-          SFX.catchUp(); cam.shake = Math.max(cam.shake, 0.06);
+        // clutch catches: grabbing while dropping fast, a long one-handed flight, or on fumes
+        const saved = e.vy < -2.6 && !e.newBar;
+        const clutch = e.vy < -2.6 || (e.alone && e.airT > 0.5) || (e.newBar && e.stam < 15);
+        if (clutch && slowT <= 0 && mode !== 'fallcam') {
+          slowT = 0.7; buzz(25);
+          addText(e.x, e.y + 0.35, saved ? 'SAVED!' : 'CLUTCH!', '#7dfcff', 34);
+        } else if (e.newBar) {
           addText(e.x, e.y + 0.25, pick(['CATCH!', 'NICE!', 'GOT IT!', 'BAR!', 'UP!']), '#ffe14d', 26);
         }
+        if (e.newBar) { SFX.catchUp(); cam.shake = Math.max(cam.shake, 0.06); }
         break;
+      }
       case 'throw':
         SFX.whoosh();
         if (e.hop) { addText(g.body.pts[HEAD].x, g.body.pts[HEAD].y + 0.4, 'HOP!', '#7dfcff', 30); puff(e.x, e.y, 14, '#ffffff', 2.2, 0.05); cam.shake = Math.max(cam.shake, 0.08); }
@@ -862,7 +1171,6 @@ if (typeof document !== 'undefined') (function boot() {
       case 'milestone':
         SFX.milestone(); cam.shake = Math.max(cam.shake, 0.1);
         addText(g.body.pts[HEAD].x, g.body.pts[HEAD].y + 0.6, e.value + 'm!', '#ffe14d', 42);
-        if (!newBestThisRun && best > 1 && g.maxHeight > best) { newBestThisRun = true; }
         for (let i = 0; i < 30; i++) {
           const hp = g.body.pts[HEAD];
           particles.push({ x: hp.x, y: hp.y + 0.3, vx: (Math.random() - 0.5) * 5, vy: Math.random() * 4 + 1, life: 1.4, max: 1.4, color: ['#ff5a3c', '#ffd23f', '#2f7bff', '#3ce07a', '#ff7ad9'][i % 5], size: 0.05, g: 7, confetti: true, rot: Math.random() * 6 });
@@ -871,7 +1179,29 @@ if (typeof document !== 'undefined') (function boot() {
     }
   }
 
-  // ---------- instant replay ----------
+  // one fixed simulation step for whatever is on screen
+  function tick() {
+    if (mode === 'replay') {
+      applyPlayback(g, pb);
+    } else {
+      const inputOn = mode === 'play' && g.state === 'play';
+      g.hands[0].key = inputOn && inputS();
+      g.hands[1].key = inputOn && inputK();
+      if (mode === 'play' && rec && g.state === 'play') {
+        const bits = (g.hands[0].key ? 1 : 0) | (g.hands[1].key ? 2 : 0);
+        if (bits !== rec.last) { rec.changes.push([g.n, bits]); rec.last = bits; }
+      }
+    }
+    stepSim(g, CFG.DT);
+    if (mode === 'play') record();
+    handleEvents();
+    // the ghost runs in lockstep on its own copy of the same ladder
+    if (gh && (mode === 'play' || mode === 'over') && !(gh.g.state === 'dying' && gh.g.deathT > 3)) {
+      applyPlayback(gh.g, gh.pb); stepSim(gh.g, CFG.DT); gh.g.events.length = 0;
+    }
+  }
+
+  // ---------- fall replay (fallcam) ----------
   // Every sim step of a run is recorded into a ring buffer; after a fall the last few seconds
   // are played back in slow motion with a zoomed camera and a commentator line.
   const TAPE_LEN = Math.ceil(3 / CFG.DT);
@@ -893,9 +1223,9 @@ if (typeof document !== 'undefined') (function boot() {
     for (let i = 0; i < P.length; i++) { const p = P[i]; p.x = f.pos[i * 4]; p.y = f.pos[i * 4 + 1]; p.px = f.pos[i * 4 + 2]; p.py = f.pos[i * 4 + 3]; }
     for (let i = 0; i < f.bars.length; i += 3) { f.bars[i].o = f.bars[i + 1]; f.bars[i].hit = f.bars[i + 2]; }
     g.stam = f.stam;
-    for (let s = 0; s < 2; s++) { g.hands[s].grip = f.grip[s] ? REPLAY_GRIP : null; g.hands[s].key = f.key[s]; }
+    for (let s = 0; s < 2; s++) { g.hands[s].grip = f.grip[s] ? FALLCAM_GRIP : null; g.hands[s].key = f.key[s]; }
   }
-  const REPLAY_GRIP = { replay: true }; // render-only stand-in; the sim never steps during a replay
+  const FALLCAM_GRIP = { replay: true }; // render-only stand-in; the sim never steps during a replay
 
   const CALL = {
     fall: [
@@ -909,13 +1239,13 @@ if (typeof document !== 'undefined') (function boot() {
     high: ["From that height, that's going to sting in the morning.", "A long way down, and he's taken the scenic route.", 'All that climbing… undone in a single, graceful plummet.'],
   };
 
-  let replay = null;
+  let fc = null;
   const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
   // playback speed (sim seconds per real second): slow motion around the slip and the landing
   const dip = (t, a, b) => (a == null ? 0 : smooth(a - 0.15, a, t) * (1 - smooth(b, b + 0.2, t)));
-  const replayRate = (r, t) => lerp(0.8, 0.3, Math.max(dip(t, r.tSlip, r.tSlip + 0.45), dip(t, r.tLand, r.tLand + 0.7)));
+  const fallRate = (r, t) => lerp(0.8, 0.3, Math.max(dip(t, r.tSlip, r.tSlip + 0.45), dip(t, r.tLand, r.tLand + 0.7)));
 
-  function startReplay() {
+  function startFallCam() {
     const frames = tape.slice(tapeHead).concat(tape.slice(0, tapeHead));
     if (frames.length < 0.5 / CFG.DT) { showOver(); return; }
     const at = (i) => (i < 0 ? null : i * CFG.DT);
@@ -923,23 +1253,23 @@ if (typeof document !== 'undefined') (function boot() {
     const tSlip = lastGrip >= 0 ? at(lastGrip) : at(frames.findIndex((f) => f.ev && f.ev.some((e) => e.type === 'die')));
     const tLand = at(frames.findIndex((f) => f.ev && f.ev.some((e) => e.type === 'impact')));
     const c = g.deathCause === 'floor' && g.maxHeight < 1.5 ? 'floor' : g.deathCause === 'exhausted' ? 'exhausted' : g.maxHeight > 10 && Math.random() < 0.5 ? 'high' : 'fall';
-    replay = {
+    fc = {
       frames, tSlip: tSlip || 0, tLand, t: 0, real: 0, rate: 0.75, hold: 0, last: -1, line: pick(CALL[c]), lineT: -1,
       live: { stam: g.stam, grip: g.hands.map((h) => h.grip), key: g.hands.map((h) => h.key), end: frames[frames.length - 1] },
     };
-    mode = 'replay'; slowmo = 0.6; releasePointers();
-    particles = []; texts = []; bubble = null;
+    mode = 'fallcam'; slowmo = 0.6; releasePointers();
+    particles = []; texts = []; bubble = null; slowT = 0;
     applyFrame(frames[0]);
     const P = g.body.pts; let cx = 0, cy = 0; for (const p of P) { cx += p.x * p.m; cy += p.y * p.m; }
     cam.x = cx / TOTAL_M; cam.y = cy / TOTAL_M; cam.shake = 0;
     SFX.rewind();
   }
-  function stepReplay(dt) {
-    const r = replay, n = r.frames.length;
+  function stepFallCam(dt) {
+    const r = fc, n = r.frames.length;
     r.real += dt;
     const end = (n - 1) * CFG.DT;
     if (r.t < end) {
-      r.t = Math.min(end, r.t + dt * replayRate(r, r.t));
+      r.t = Math.min(end, r.t + dt * fallRate(r, r.t));
       const idx = Math.min(n - 1, Math.floor(r.t / CFG.DT));
       for (let i = r.last + 1; i <= idx; i++) if (r.frames[i].ev) for (const e of r.frames[i].ev) fx(e);
       r.last = idx;
@@ -947,17 +1277,17 @@ if (typeof document !== 'undefined') (function boot() {
     } else r.hold += dt;
     if (r.lineT < 0 && r.t >= r.tSlip + 0.25) r.lineT = 0;
     if (r.lineT >= 0) r.lineT += dt;
-    if (r.hold > 1.6) endReplay();
-    return replayRate(r, r.t);
+    if (r.hold > 1.6) endFallCam();
+    return fallRate(r, r.t);
   }
-  function endReplay() {
-    if (!replay) return;
-    const L = replay.live;
+  function endFallCam() {
+    if (!fc) return;
+    const L = fc.live;
     applyFrame(L.end);
     g.stam = L.stam;
     g.hands.forEach((h, i) => { h.grip = L.grip[i]; h.key = L.key[i]; });
-    replay = null; slowmo = 1; zoom = 1; scale = baseScale;
-    particles = []; texts = []; bubble = null;
+    fc = null; slowmo = 1; zoom = 1; scale = baseScale;
+    particles = []; texts = []; bubble = null; slowT = 0;
     showOver();
   }
 
@@ -970,8 +1300,8 @@ if (typeof document !== 'undefined') (function boot() {
     if (cur) lines.push(cur);
     return lines;
   }
-  function drawReplay() {
-    const r = replay;
+  function drawFallCam() {
+    const r = fc;
     const intro = clamp(r.real / 0.35, 0, 1);
     const bar = (Hh * 0.08 + 8) * intro;
     // letterbox
@@ -986,7 +1316,7 @@ if (typeof document !== 'undefined') (function boot() {
     const pl = 18 + safe.l, pr = 18 + safe.r;
     if (Math.floor(r.real * 2) % 2 === 0) { ctx.fillStyle = '#ff3c3c'; ctx.beginPath(); ctx.arc(pl + 8, ty, 7, 0, Math.PI * 2); ctx.fill(); }
     ctx.fillStyle = '#fff'; ctx.font = '900 20px Impact, Arial Black, sans-serif';
-    ctx.fillText('INSTANT REPLAY', pl + 24, ty + 1);
+    ctx.fillText('ACTION REPLAY', pl + 24, ty + 1);
     ctx.textAlign = 'right'; ctx.font = 'bold 15px Trebuchet MS, sans-serif'; ctx.fillStyle = '#ffd23f';
     ctx.fillText(r.rate.toFixed(2).replace(/0$/, '') + '×', W - pr, ty + 1);
     // skip hint
@@ -1018,38 +1348,40 @@ if (typeof document !== 'undefined') (function boot() {
   // ---------- loop ----------
   let last = performance.now(), acc = 0, prevBestFlag = false;
   function frame(now) {
-    let dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (mode === 'replay') {
-      const rate = stepReplay(dt);
-      if (replay) { replay.rate = rate; updateFx(dt * rate); }
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    // slow motion for clutch catches: hold at 30% speed, then ease back
+    if (slowT > 0) slowT -= dt;
+    const ts = slowT > 0 ? lerp(1, 0.3, Math.min(1, slowT / 0.3)) : 1;
+    const sdt = dt * ts;
+    if (mode === 'fallcam') {
+      const rate = stepFallCam(dt);
+      if (fc) { fc.rate = rate; updateFx(dt * rate); }
     } else if (!(mode === 'play' && paused)) {
-      acc += dt;
+      acc += sdt;
       let steps = 0;
-      while (acc >= CFG.DT && steps < 8) {
-        const inputOn = g.state === 'play';
-        g.hands[0].key = inputOn && inputS();
-        g.hands[1].key = inputOn && inputK();
-        stepSim(g, CFG.DT);
-        if (mode === 'play') record();
-        handleEvents();
-        acc -= CFG.DT; steps++;
-      }
+      while (acc >= CFG.DT && steps < 8) { tick(); acc -= CFG.DT; steps++; }
       if (steps >= 8) acc = 0;
-      if (g.state === 'dying' && mode === 'play' && (g.deathT > 1.5 || (g.floorHit && g.deathT > 0.8))) startReplay();
+      const ended = g.state === 'dying' && (g.deathT > 1.5 || (g.floorHit && g.deathT > 0.8));
+      if (mode === 'play' && ended) startFallCam();
+      else if (mode === 'replay' && (ended || g.n > watching.rec.steps + 600)) showReplayEnd();
       if (mode === 'play' && !prevBestFlag && best > 2 && g.maxHeight > best && g.state === 'play') {
         prevBestFlag = true; addText(g.body.pts[HEAD].x, g.body.pts[HEAD].y + 0.8, 'NEW BEST!', '#ff7ad9', 34); SFX.milestone();
       }
-      if (mode !== 'play') prevBestFlag = false;
-      if (mode === 'play' && g.state === 'play') {
-        if (g.stam < 25 && warnCool <= 0) { SFX.warn(); warnCool = 2.5; }
+      if (mode === 'play' && g.state === 'play' && !tutDone && g.maxBar >= 4) {
+        tutDone = true; try { localStorage.setItem('rtb_tut', '1'); } catch (e) {}
+        addText(g.body.pts[HEAD].x, g.body.pts[HEAD].y + 1.0, "YOU'VE GOT IT!", '#3ce07a', 36);
+        flash('Now manage your stamina: rest by hanging still');
+      }
+      if ((mode === 'play' || mode === 'replay') && g.state === 'play') {
+        if (mode === 'play' && g.stam < 25 && warnCool <= 0) { SFX.warn(); warnCool = 2.5; }
         warnCool -= dt;
-        if (g.stam < 40 && Math.random() < dt * (1 - g.stam / 40) * 6) {
+        if (g.stam < 40 && Math.random() < sdt * (1 - g.stam / 40) * 6) {
           const hp = g.body.pts[HEAD];
           particles.push({ x: hp.x + (Math.random() - 0.5) * 0.2, y: hp.y + 0.05, vx: (Math.random() - 0.5) * 1.2, vy: 0.8, life: 0.8, max: 0.8, color: '#7fd4ff', size: 0.028, g: 7, drop: true });
         }
         tipT += dt;
       }
-      updateFx(dt);
+      updateFx(sdt);
     }
     updateCamera(dt);
     render(dt);
@@ -1080,9 +1412,9 @@ if (typeof document !== 'undefined') (function boot() {
   function updateCamera(dt) {
     const P = g.body.pts;
     let cx = 0, cy = 0; for (const p of P) { cx += p.x * p.m; cy += p.y * p.m; } cx /= TOTAL_M; cy /= TOTAL_M;
-    if (mode === 'replay') {
-      // zoom in on the tumble, pushing in harder as it approaches the moment of the fall
-      const r = replay;
+    if (mode === 'fallcam') {
+      // zoom in on the tumble, pushing in harder towards the landing
+      const r = fc;
       zoom = lerp(1.3, 1.85, smooth(r.tSlip - 0.3, (r.tLand != null ? r.tLand : r.tSlip + 1) + 0.2, r.t));
       scale = baseScale * zoom;
       const k = 1 - Math.exp(-dt * 7);
@@ -1095,7 +1427,7 @@ if (typeof document !== 'undefined') (function boot() {
     }
     const dying = g.state === 'dying';
     // keep the climber centred in the space left between the top and bottom HUD
-    const L = hudLayout(), hudShift = mode === 'play' ? (L.bottom - L.top) / 2 / scale : 0;
+    const L = hudLayout(), hudShift = mode === 'play' || mode === 'replay' ? (L.bottom - L.top) / 2 / scale : 0;
     const ty = Math.max((dying ? cy : cy + 0.9) - hudShift, 2.9);
     const rate = dying ? 5 : 3.2;
     cam.y += (ty - cam.y) * (1 - Math.exp(-dt * rate));
@@ -1197,6 +1529,11 @@ if (typeof document !== 'undefined') (function boot() {
       ctx.beginPath(); ctx.moveTo(b.x0 + 0.02, b.y + 0.012); ctx.quadraticCurveTo((b.x0 + b.x1) / 2, y * 2 - b.y + 0.012, b.x1 - 0.02, b.y + 0.012); ctx.stroke();
     }
 
+    // goal lines: your best, and how high the ghost got
+    const bestLine = mode === 'replay' ? 0 : currentBest();
+    if (bestLine > 1) goalLine(h0 + bestLine, '#ff4f9a');
+    if (gh && gh.max > 0.5 && Math.abs(gh.max - bestLine) > 0.05) goalLine(h0 + gh.max, '#39a0ff');
+    if (gh && mode !== 'fallcam') drawGhost(gh.g);
     drawGuy();
 
     // particles
@@ -1217,6 +1554,17 @@ if (typeof document !== 'undefined') (function boot() {
     for (let m = Math.max(0, Math.ceil((viewBot - h0) / 5) * 5); m <= viewTop - h0; m += 5) {
       const [X, Y] = toScreen(-1.4, h0 + m, sx, sy); ctx.fillText(m + 'm', X, Y);
     }
+    if (mode !== 'menu') {
+      ctx.font = '900 12px Trebuchet MS, sans-serif'; ctx.textAlign = 'right';
+      if (bestLine > 1) { const [X, Y] = toScreen(1.68, h0 + bestLine, sx, sy); ctx.fillStyle = '#c2185b'; ctx.fillText('BEST ' + bestLine.toFixed(1) + 'm', X, Y - 9); }
+      if (gh && gh.max > 0.5 && Math.abs(gh.max - bestLine) > 0.05) { const [X, Y] = toScreen(1.68, h0 + gh.max, sx, sy); ctx.fillStyle = '#1565c0'; ctx.fillText(gh.name + ' ' + gh.max.toFixed(1) + 'm', X, Y - 9); }
+      ctx.textAlign = 'center';
+      if (gh && mode !== 'fallcam' && !(gh.g.state === 'dying' && gh.g.deathT > 2)) {
+        const hp = gh.g.body.pts[HEAD]; const [X, Y] = toScreen(hp.x, hp.y + 0.3, sx, sy);
+        ctx.font = '900 13px Trebuchet MS, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.strokeText('👻 ' + gh.name, X, Y); ctx.fillStyle = '#1565c0'; ctx.fillText('👻 ' + gh.name, X, Y);
+      }
+    }
     for (const t of texts) {
       const [X, Y] = toScreen(t.x, t.y, sx, sy);
       const a = clamp(t.life / t.max * 2, 0, 1), sc = 1 + (1 - t.life / t.max) * 0.2;
@@ -1236,8 +1584,8 @@ if (typeof document !== 'undefined') (function boot() {
       ctx.beginPath(); ctx.moveTo(X - w / 2 + 10, Y + 14); ctx.lineTo(X - w / 2 - 4, Y + 26); ctx.lineTo(X - w / 2 + 22, Y + 14); ctx.fill();
       ctx.fillStyle = '#1d1b2f'; ctx.fillText(bubble.t, X, Y + 1);
     }
-    if (mode === 'play' || mode === 'over') drawHUD();
-    if (mode === 'replay' && replay) drawReplay();
+    if (mode === 'play' || mode === 'over' || mode === 'replay') drawHUD();
+    if (mode === 'fallcam' && fc) drawFallCam();
     if (flashMsg) {
       ctx.globalAlpha = clamp(flashMsg.life, 0, 1); ctx.font = '900 20px Trebuchet MS, sans-serif'; ctx.fillStyle = '#1d1b2f';
       ctx.fillText(flashMsg.t, W / 2, 90); ctx.globalAlpha = 1;
@@ -1247,6 +1595,33 @@ if (typeof document !== 'undefined') (function boot() {
       ctx.fillStyle = '#fff'; ctx.font = '900 56px Impact, Arial Black, sans-serif'; ctx.fillText('PAUSED', W / 2, Hh / 2 - 10);
       ctx.font = 'bold 18px Trebuchet MS, sans-serif'; ctx.fillText(isTouch ? 'Tap anywhere to resume' : 'Esc / Enter to resume', W / 2, Hh / 2 + 36);
     }
+  }
+
+  function currentBest() {
+    if (run && run.kind === 'daily') return daily.best;
+    return best;
+  }
+  function goalLine(y, color) {
+    ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 0.03; ctx.setLineDash([0.12, 0.08]);
+    ctx.beginPath(); ctx.moveTo(-1.75, y); ctx.lineTo(1.75, y); ctx.stroke(); ctx.restore();
+    ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(1.72, y); ctx.lineTo(1.72, y + 0.3); ctx.lineTo(1.98, y + 0.22); ctx.lineTo(1.72, y + 0.14); ctx.fill();
+  }
+  // the ghost: a translucent stick figure replaying a recorded run
+  function drawGhost(gg) {
+    const P = gg.body.pts;
+    const fade = gg.state === 'dying' ? clamp(1 - gg.deathT / 3, 0, 1) : 1;
+    if (fade <= 0) return;
+    ctx.save(); ctx.globalAlpha = 0.42 * fade;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const col = '#e8f4ff', edge = '#3a7bd5';
+    const limbs = [[LHIP, LKN], [LKN, LFT], [RHIP, RKN], [RKN, RFT], [LSH, LEL], [LEL, LH], [RSH, REL], [REL, RH], [NECK, PEL]];
+    for (const [a, b] of limbs) seg(P[a], P[b], 0.13, edge);
+    const tq = [P[LSH], P[RSH], P[RHIP], P[LHIP]];
+    ctx.fillStyle = edge; ctx.beginPath(); tq.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); ctx.fill();
+    for (const [a, b] of limbs) seg(P[a], P[b], 0.08, col);
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(P[HEAD].x, P[HEAD].y, 0.13, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = edge; ctx.lineWidth = 0.03; ctx.stroke();
+    ctx.restore();
   }
 
   function drawStar(x, y, r) {
@@ -1301,6 +1676,15 @@ if (typeof document !== 'undefined') (function boot() {
       const sh = P[h.sh], el = P[h.el], hp = P[h.idx];
       const pulling = h.grip && h.key;
       const w = pulling ? 0.115 : 0.09;
+      // release cue: the arm glows while letting go would launch the hand
+      const tr = mode === 'menu' ? 0 : throwReady(g, h);
+      if (tr) {
+        const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 55);
+        ctx.strokeStyle = tr === 2 ? 'rgba(255,244,90,' + (0.55 + 0.4 * pulse) + ')' : 'rgba(255,150,60,0.45)';
+        ctx.lineWidth = tr === 2 ? 0.24 : 0.17;
+        ctx.beginPath(); ctx.moveTo(sh.x, sh.y); ctx.lineTo(el.x, el.y); ctx.lineTo(hp.x, hp.y); ctx.stroke();
+        ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(hp.x, hp.y, tr === 2 ? 0.11 + 0.03 * pulse : 0.09, 0, Math.PI * 2); ctx.fill();
+      }
       seg(sh, el, w + 0.04, outline); seg(el, hp, w + 0.02, outline);
       seg(sh, el, w, skin); seg(el, hp, w - 0.02, skin);
       if (pulling) { // bicep bulge
@@ -1382,12 +1766,29 @@ if (typeof document !== 'undefined') (function boot() {
     ctx.fillText('MAX ' + g.maxHeight.toFixed(1) + 'm  ·  SCORE ' + score(g), pl, pt + 78);
     // best
     ctx.textAlign = 'right';
-    const bshow = Math.max(best, g.maxHeight);
+    let bLbl = 'BEST', bVal = best;
+    if (mode === 'replay') { bLbl = 'YOUR BEST'; }
+    else if (run && run.kind === 'daily') { bLbl = "TODAY'S BEST"; bVal = daily.best; }
+    else if (gh) { bLbl = gh.name; bVal = gh.max; }
+    const ahead = mode !== 'replay' && g.maxHeight > bVal && bVal > 0;
+    const bshow = mode === 'replay' ? bVal : Math.max(bVal, g.maxHeight);
     ctx.font = '900 14px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.75)';
-    ctx.fillText('BEST', W - pr, pt + 12);
+    ctx.fillText(bLbl, W - pr, pt + 12);
     ctx.font = '900 34px Impact, Arial Black, sans-serif';
     ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
-    ctx.fillStyle = g.maxHeight > best && best > 0 ? '#e0357a' : '#1d1b2f'; ctx.fillText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
+    ctx.fillStyle = ahead ? '#e0357a' : '#1d1b2f'; ctx.fillText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
+    ctx.font = 'bold 12px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.7)';
+    const badge = mode === 'replay' ? '' : run && run.kind === 'daily' ? 'DAILY #' + run.day : run && run.kind === 'challenge' ? 'GHOST RACE' : '';
+    if (badge) ctx.fillText(badge, W - pr, pt + 68);
+    if (mode === 'replay') {
+      const t = '▶ REPLAY' + (watching && watching.name !== 'YOU' ? ' · ' + watching.name : '');
+      ctx.textAlign = 'center'; ctx.font = '900 20px Trebuchet MS, sans-serif';
+      const w = ctx.measureText(t).width + 28, x0 = W / 2 - w / 2, y0 = pt + (isTouch ? 44 : 0);
+      ctx.fillStyle = Math.floor(performance.now() / 500) % 2 ? '#ff3c3c' : '#d62828'; roundRect(x0, y0, w, 34, 8); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillText(t, W / 2, y0 + 24);
+      ctx.font = 'bold 13px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.8)';
+      ctx.fillText(isTouch ? 'Tap to skip' : 'Enter / Esc to skip', W / 2, y0 + 52);
+    }
 
     // stamina bar
     const s = clamp(g.stam / 100, 0, 1);
@@ -1406,11 +1807,16 @@ if (typeof document !== 'undefined') (function boot() {
     ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(bx + 4, by + 3, Math.max(0, bw * s - 8), 4);
     for (let i = 1; i < 10; i++) { ctx.fillStyle = 'rgba(29,27,47,0.35)'; ctx.fillRect(bx + bw * i / 10 - 1, by, 2, bh); }
 
-    // key indicators
+    // key indicators (glow when releasing that key would launch the hand)
     for (const h of g.hands) {
       const left = h.side === 0;
       const x = left ? pl : W - pr - kw, y = Hh - kh - pb;
       const col2 = left ? '#2f7bff' : '#ff8a1f';
+      const tr = throwReady(g, h);
+      if (tr) {
+        ctx.fillStyle = tr === 2 ? 'rgba(255,236,60,' + (0.6 + 0.4 * Math.sin(performance.now() / 55)) + ')' : 'rgba(255,150,60,0.6)';
+        roundRect(x - 6, y - 6 + 3, kw + 12, kh + 12, 14); ctx.fill();
+      }
       ctx.fillStyle = '#1d1b2f'; roundRect(x, y + (h.key ? 3 : 0), kw, kh, 10); ctx.fill();
       ctx.fillStyle = h.key ? col2 : '#fff'; roundRect(x + 3, y + 3 + (h.key ? 3 : 0), kw - 6, kh - 6 - (h.key ? 0 : 4), 8); ctx.fill();
       ctx.textAlign = 'center';
@@ -1420,15 +1826,43 @@ if (typeof document !== 'undefined') (function boot() {
       ctx.font = 'bold 11px Trebuchet MS, sans-serif'; ctx.fillStyle = h.key ? '#fff' : 'rgba(29,27,47,0.7)';
       ctx.fillText((isTouch ? (left ? 'LEFT ARM · ' : 'RIGHT ARM · ') : '') + st, x + kw / 2, y + (isTouch ? 52 : 42) + (h.key ? 3 : 0));
     }
-    // tips
-    if (mode === 'play' && g.state === 'play' && g.maxHeight < 3 && !paused) {
-      const tips = [isTouch ? 'Hold BOTH sides of the screen to pull up.' : 'Hold S + K to pull up.', 'Release both at the top to HOP to the next bar!', 'Your hands grab any bar they pass. Rest to recover stamina.'];
-      const t = tips[Math.floor(tipT / 3.5) % tips.length];
-      ctx.font = 'bold 16px Trebuchet MS, sans-serif'; ctx.textAlign = 'center';
-      if (ctx.measureText(t).width > W - 24) ctx.font = 'bold ' + Math.max(10, Math.floor(16 * (W - 24) / ctx.measureText(t).width)) + 'px Trebuchet MS, sans-serif';
-      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.strokeText(t, W / 2, pt + (isTouch && W < 520 ? 150 : 106));
-      ctx.fillStyle = '#1d1b2f'; ctx.fillText(t, W / 2, pt + (isTouch && W < 520 ? 150 : 106));
+    // coaching: step-by-step prompts until you have climbed a few bars, then stamina hints
+    if (mode === 'play' && g.state === 'play' && !paused) {
+      const c = coach();
+      if (c) {
+        ctx.textAlign = 'center';
+        const size = c.big ? 28 : 17, ty = pt + (isTouch && W < 520 ? 150 : 110);
+        ctx.font = (c.big ? '900 ' : 'bold ') + size + 'px ' + (c.big ? 'Impact, Arial Black, sans-serif' : 'Trebuchet MS, sans-serif');
+        const mw = ctx.measureText(c.t).width;
+        if (mw > W - 24) ctx.font = (c.big ? '900 ' : 'bold ') + Math.max(10, Math.floor(size * (W - 24) / mw)) + 'px Trebuchet MS, sans-serif';
+        const sc = c.big ? 1 + 0.06 * Math.sin(performance.now() / 70) : 1;
+        ctx.save(); ctx.translate(W / 2, ty); ctx.scale(sc, sc);
+        ctx.lineWidth = c.big ? 6 : 4; ctx.strokeStyle = c.big ? '#1d1b2f' : 'rgba(255,255,255,0.9)'; ctx.strokeText(c.t, 0, 0);
+        ctx.fillStyle = c.color || '#1d1b2f'; ctx.fillText(c.t, 0, 0);
+        ctx.restore();
+      }
     }
+  }
+
+  function coach() {
+    const H = g.hands, nG = (H[0].grip ? 1 : 0) + (H[1].grip ? 1 : 0);
+    const ready = Math.max(throwReady(g, H[0]), throwReady(g, H[1]));
+    const bothKey = isTouch ? 'BOTH sides of the screen' : 'S + K';
+    if (tutDone) {
+      if (ready === 2 && g.maxBar < 8) return { t: 'LET GO!', big: true, color: '#ffe14d' };
+      if (g.stam < 25 && nG === 2 && !H[0].key && !H[1].key) return { t: 'Low stamina: hang still to recover', color: '#c2410c' };
+      return null;
+    }
+    if (ready === 2) return { t: H[0].key && H[1].key ? 'LET GO NOW!' : 'LET GO!', big: true, color: '#ffe14d' };
+    if (ready === 1) return { t: 'Let go! (a bit late: release while still rising)', color: '#c2410c' };
+    if (nG === 0) return { t: 'Your hands grab bars on their own…' };
+    if (nG === 1) {
+      const free = H[0].grip ? H[1] : H[0];
+      return { t: 'Hold ' + (isTouch ? (free.side ? 'the RIGHT side' : 'the LEFT side') : free.side ? 'K' : 'S') + ' to reach up with your free hand' };
+    }
+    if (H[0].key && H[1].key) return { t: 'Keep pulling… let go when your arms glow' };
+    if (H[0].key || H[1].key) return { t: 'Hold ' + bothKey + ' together for a full pull-up' };
+    return { t: g.maxBar === 0 ? 'Hold ' + bothKey + ' to pull up' : 'Nice! Rest a moment, then go again' };
   }
 
   requestAnimationFrame(frame);
