@@ -13,7 +13,7 @@ Open `index.html` in any modern desktop browser. That's it: one self-contained f
 | **S** | Left arm: pull while gripping, reach up while free |
 | **K** | Right arm: pull while gripping, reach up while free |
 | **S + K** | Full pull-up: stronger pull, drains stamina fast |
-| Enter / Space | Start / retry |
+| Enter / Space | Start / retry / skip replay |
 | Esc / P | Pause |
 | M | Mute |
 
@@ -32,4 +32,5 @@ Open `index.html` in any modern desktop browser. That's it: one self-contained f
 - **Stamina.** Pulling drains it (two-arm pulls drain it about 2.5× as fast as one). Hanging recovers it for a while, then starts to tire you. Low stamina weakens pulls and grip, lowers the fastest catch you can make, removes core stabilisation (more sway) and adds tremor. At zero stamina your grip gives out.
 - **Procedural ladder.** Bars get further apart, shorter and more offset with height, while staying within reach.
 - **Springy bars, particles, screen shake, WebAudio sound effects, and a ragdoll that tumbles off the bars when you fall.**
+- **Instant replay.** After a fall, the last 3 seconds play back in slow motion (slowest at the slip and the landing) with a zoomed camera, deeper slowed-down sound effects and a sports-commentator line, before the game-over card. Press Enter / Space or tap to skip.
 - The best height is saved in `localStorage`.
