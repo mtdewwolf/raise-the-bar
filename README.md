@@ -25,6 +25,21 @@ Open `index.html` in any modern desktop browser. That's it: one self-contained f
 - Hold S+K and release only one key to climb hand over hand.
 - Pull on one side only to rotate and swing, which you need to reach offset bars.
 
+## Learning the hop
+
+- **Release cue.** Your arms (and the on-screen buttons) glow yellow while letting go would launch the hand upward, and orange when you've held too long and are sinking.
+- **Coaching.** Until you've climbed a few bars, prompts walk you through it: hold, keep pulling, *LET GO NOW!*
+- **Early bars are forgiving.** The first dozen bars allow sloppier, faster catches.
+- **Slow motion** kicks in for clutch catches: grabbing a bar while dropping fast, after a long one-handed flight, or on nearly empty stamina.
+
+## Ghosts, replays and the Daily Ladder
+
+The physics is fully deterministic. It uses only arithmetic that gives the same result in every browser, so a whole run is just its ladder seed plus the moments the keys changed. That's usually under 200 characters.
+
+- **Daily Ladder:** everyone gets the same ladder each (UTC) day. Your best run on it comes back as a ghost to race.
+- **Watch replay / Race this run** after any fall.
+- **Share challenge:** copies a link with the run built in. Whoever opens it can watch your run or race your ghost on the exact same ladder. Links only work for other people once the game is hosted online (e.g. GitHub Pages), not from a local file.
+
 ## Systems
 
 - **Verlet ragdoll** with 15 point masses, rigid torso bracing, arm and leg segments, muscle forces and leg tone. Nothing is scripted or animated: every climb comes out of forces and constraints.
