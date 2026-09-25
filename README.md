@@ -60,6 +60,15 @@ The physics is fully deterministic. It uses only arithmetic that gives the same 
 - **Watch replay / Race this run** after any fall.
 - **Share challenge:** copies a link with the run built in. Whoever opens it can watch your run or race your ghost on the exact same ladder. Links only work for other people once the game is hosted online (e.g. GitHub Pages), not from a local file.
 
+## Leaderboards and achievements
+
+- **Leaderboards** (🏆 in the menu): today's Daily Ladder and all-time. Scores are checked by the server, which re-runs every replay through the game's physics. Press ▶ to watch any entry, or 👻 to race its ghost.
+- **One profile on every device.** You get an anonymous profile with a silly name you can change. Its **sync code** carries your scores and achievements between the browser and the Android app.
+- **21 achievements** (🏅 in the menu), from *Liftoff* to *Space Program*, with a pop-up when you unlock one. They're saved on the device and synced to your profile when online.
+- **Works offline.** Without a server the game plays normally. Runs finished offline upload the next time the server can be reached.
+
+Leaderboards need the small server in [`server/`](server/README.md): no dependencies, one command to start, and it can host the game itself.
+
 ## Systems
 
 - **Verlet ragdoll** with 15 point masses, rigid torso bracing, arm and leg segments, muscle forces and leg tone. Nothing is scripted or animated: every climb comes out of forces and constraints.

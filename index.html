@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#7cc8ff">
 <title>Raising the Bar</title>
+<!-- Leaderboard server address, e.g. https://rtb.example.com. Leave empty to use the page's own
+     server when it has one (see server/README.md); the game works offline without it. -->
+<meta name="rtb-api" content="">
 <style>
   :root {
     --ink: #1d1b2f;
@@ -86,6 +89,43 @@
   .vs.win { color: #1f9d4f; } .vs.lose { color: #c2410c; }
   .more { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 8px; }
   .more button { font-size: 14px; padding: 8px 12px; margin: 0; box-shadow: 0 4px 0 var(--ink); background: #fff; color: var(--ink); }
+  .menurow { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+  button.small { font-size: 15px; padding: 8px 14px; margin: 0; box-shadow: 0 4px 0 var(--ink); }
+  .profile { font-size: 13px; font-weight: bold; opacity: .75; margin-top: 8px; min-height: 1.2em; }
+  .profile a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  .rank { font-weight: 900; font-size: 17px; margin: 6px 0 0; min-height: 1.3em; color: #6b3fa0; }
+  .card.wide { max-width: 560px; position: relative; transform: none; text-align: left; }
+  .card h2 { margin: 0 40px 12px; font-family: Impact, "Arial Black", sans-serif; font-size: clamp(24px, 7vw, 34px); letter-spacing: 1px; text-align: center; }
+  .close { position: absolute; top: 10px; right: 10px; font-size: 18px; padding: 4px 12px; margin: 0; background: #fff; color: var(--ink); box-shadow: 0 3px 0 var(--ink); }
+  .tabs { display: flex; gap: 6px; justify-content: center; margin-bottom: 10px; }
+  .tab { white-space: nowrap; font-size: 15px; padding: 7px 16px; margin: 0; background: #fff; color: var(--ink); box-shadow: 0 3px 0 var(--ink); }
+  .tab.on { background: var(--ink); color: #fff; }
+  .lbstatus { text-align: center; font-size: 14px; font-weight: bold; opacity: .75; min-height: 1.3em; margin-bottom: 6px; }
+  .lblist { list-style: none; padding: 0; margin: 0 0 12px; max-height: 46vh; overflow-y: auto; border: 3px solid var(--ink); border-radius: 12px; background: #fff; }
+  .lblist li { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-bottom: 1px solid #eadfcb; font-size: 16px; }
+  .lblist li:last-child { border-bottom: 0; }
+  .lblist li.you { background: #fff3c4; font-weight: 900; }
+  .lblist li.gap { justify-content: center; opacity: .5; padding: 2px; font-size: 12px; }
+  .lblist .rk { width: 2.2em; flex: none; font-weight: 900; text-align: right; }
+  .lblist .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lblist .ht { font-weight: 900; flex: none; text-align: right; margin-right: 2px; }
+  .lblist button { font-size: 12px; padding: 4px 8px; margin: 0; background: #fff; color: var(--ink); box-shadow: 0 2px 0 var(--ink); border-width: 2px; border-radius: 8px; }
+  .lblist .medal { font-size: 18px; }
+  .profilebox { border: 3px solid var(--ink); border-radius: 12px; padding: 8px 12px; background: #fff; font-size: 14px; }
+  .profilebox summary { font-weight: 900; cursor: pointer; }
+  .profilebox label { display: block; font-weight: bold; margin: 10px 0 4px; }
+  .profilebox .row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+  .profilebox input { flex: 1; font: inherit; font-size: 16px; padding: 7px 9px; border: 3px solid var(--ink); border-radius: 9px; min-width: 0; }
+  .profilebox code { flex: 1; font-size: 17px; font-weight: 900; letter-spacing: 1px; background: #f4ecdd; padding: 6px 8px; border-radius: 8px; user-select: all; -webkit-user-select: all; }
+  .profilebox .sync { margin-top: 12px; }
+  .profilebox .fine { font-size: 12px; opacity: .65; margin-top: 6px; }
+  .achgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-height: 60vh; overflow-y: auto; }
+  .achcard { border: 3px solid var(--ink); border-radius: 12px; padding: 8px 10px; background: #fff; }
+  .achcard .ic { font-size: 26px; }
+  .achcard .an { font-weight: 900; font-size: 15px; }
+  .achcard .ad { font-size: 12px; opacity: .8; }
+  .achcard.locked { background: #eee7da; opacity: .6; }
+  .achcard.locked .ic { filter: grayscale(1); }
   .touchpads { display: flex; gap: 10px; justify-content: center; margin: 0 auto 12px; max-width: 360px; }
   .touchpads div { flex: 1; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 6px; font-weight: 900; font-size: 15px; line-height: 1.25; }
   .touchpads .l { background: #dbe8ff; color: var(--left); }
@@ -134,6 +174,11 @@
     <button id="startBtn">Start</button>
     <button id="dailyBtn" class="daily">Daily Ladder</button>
     <div id="dailyInfo" class="dailyinfo"></div>
+    <div class="menurow">
+      <button id="lbBtn" class="secondary small">🏆 Leaderboards</button>
+      <button id="achBtn" class="secondary small">🏅 Achievements <span id="achCount"></span></button>
+    </div>
+    <div id="profileLine" class="profile"></div>
     <button id="bloodBtn" class="secondary toggle"></button>
     <div class="hint kb-only">Enter / Space to start &middot; D for the daily &middot; M to mute &middot; B for blood &middot; Esc to pause &middot; touch works too</div>
     <div class="hint touch-only">Tip: play in landscape or portrait &middot; ❚❚ button to pause</div>
@@ -151,6 +196,7 @@
       <div class="stat"><div class="lbl">SCORE</div><div class="val" id="oScore">0</div></div>
     </div>
     <div class="vs" id="oVs"></div>
+    <div class="rank" id="oRank"></div>
     <div class="quip" id="oQuip"></div>
     <div class="cause" id="oCause"></div>
     <div id="oMain"></div>
@@ -159,8 +205,39 @@
   </div>
 </div>
 
+<div id="lb" class="overlay panel hidden">
+  <div class="card wide">
+    <button class="close" data-close aria-label="Close">✕</button>
+    <h2>🏆 Leaderboards</h2>
+    <div class="tabs"><button id="lbDaily" class="tab on">Today</button><button id="lbAll" class="tab">All-time</button></div>
+    <div id="lbStatus" class="lbstatus"></div>
+    <ol id="lbList" class="lblist"></ol>
+    <details class="profilebox" id="profileBox">
+      <summary>Your profile &amp; devices</summary>
+      <label>Name <span class="row"><input id="nameInput" maxlength="16" autocomplete="off"><button id="nameSave" class="secondary small">Save</button></span></label>
+      <div class="sync">
+        <div><b>Play on another device?</b> Enter this sync code there to bring your profile, scores and achievements along.</div>
+        <div class="row"><code id="syncCode">hidden</code><button id="syncShow" class="secondary small">Show</button></div>
+        <div class="row"><input id="linkInput" placeholder="Enter a sync code" autocomplete="off" spellcheck="false"><button id="linkBtn" class="secondary small">Link</button></div>
+        <div class="fine">Keep the code private: anyone with it can play as you.</div>
+      </div>
+    </details>
+  </div>
+</div>
+
+<div id="ach" class="overlay panel hidden">
+  <div class="card wide">
+    <button class="close" data-close aria-label="Close">✕</button>
+    <h2>🏅 Achievements</h2>
+    <div id="achSummary" class="lbstatus"></div>
+    <div id="achGrid" class="achgrid"></div>
+  </div>
+</div>
+
 <script>
 'use strict';
+// @sim-begin — everything down to @sim-end is the pure simulation. server/sim.js loads this exact
+// block to verify leaderboard replays, so it must stay free of DOM/browser APIs.
 /* =====================================================================
    RAISING THE BAR — a two-key physics salmon-ladder game.
    The simulation section below has no DOM dependencies.
@@ -316,16 +393,16 @@ function grab(g, h, b, x, speed, vy) {
   hp.x = hp.px = x; hp.y = hp.py = b.y + b.o;
   b.vo -= Math.min(speed, 6) * 0.25; b.hit = 1;
   g.hangT = 0; g.catches++;
-  let newBar = false;
+  let newBar = false, skipped = 0;
   if (b.i > g.maxBar) {
     newBar = true;
-    const skipped = b.i - g.maxBar - 1;
+    skipped = b.i - g.maxBar - 1;
     g.bonus += 25 + skipped * 40;
     g.maxBar = b.i;
   }
   const other = g.hands[1 - h.side];
   g.events.push({ type: 'catch', side: h.side, x, y: b.y, speed, vy: vy || 0, newBar, bar: b.i,
-    airT: g.noGripT, alone: !other.grip, stam: g.stam });
+    airT: g.noGripT, alone: !other.grip, stam: g.stam, skipped });
 }
 
 function die(g, cause) {
@@ -755,6 +832,7 @@ function dailySeed(day) {
 globalThis.RTB = { CFG, newGame, stepSim, score, dist, throwReady, encodeReplay, decodeReplay, makePlayback, playbackInputs,
   applyPlayback, simulateReplay,
   dayNumber, dailySeed, HEAD, LSH, RSH, LH, RH };
+// @sim-end
 
 /* =====================================================================
    PRESENTATION: rendering, audio, input, UI
@@ -856,6 +934,8 @@ if (typeof document !== 'undefined') (function boot() {
     return hit;
   }
   window.addEventListener('keydown', (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) { if (e.key === 'Escape') closePanel(); return; }
+    if (panel) { if (e.key === 'Escape') closePanel(); return; }
     if (setKey(e, true)) { initAudio(); return; }
     if (e.repeat) return;
     const k = e.key;
@@ -869,7 +949,7 @@ if (typeof document !== 'undefined') (function boot() {
     else if (mode === 'play' && (k === 'Escape' || k === 'p' || k === 'P')) paused = !paused;
     else if (mode === 'play' && paused && (k === 'Enter' || k === ' ')) paused = false;
   });
-  window.addEventListener('keyup', (e) => setKey(e, false));
+  window.addEventListener('keyup', (e) => { if (!(e.target && e.target.tagName === 'INPUT')) setKey(e, false); });
 
   // ---------- touch / pointer: hold left half = S, right half = K (multi-touch) ----------
   const pointers = new Map(); // pointerId -> 'S' | 'K'
@@ -972,6 +1052,7 @@ if (typeof document !== 'undefined') (function boot() {
     const rk = cfg.ghost ? cfg.ghost.kind : cfg.kind === 'daily' ? 'daily' : 'endless';
     const rd = cfg.ghost ? cfg.ghost.day : cfg.day || 0;
     rec = { seed: cfg.seed, kind: rk, day: rd, steps: 0, changes: [], last: 0 };
+    runHops = 0;
     resetFx(); mode = 'play'; hideOverlays();
     cam.y = g.body.pts[HEAD].y - 0.6;
   }
@@ -1010,6 +1091,9 @@ if (typeof document !== 'undefined') (function boot() {
       const where = challenge.rec.kind === 'daily' ? 'Daily Ladder #' + challenge.rec.day : 'their ladder';
       $('cText').textContent = 'Someone climbed ' + challenge.max.toFixed(1) + 'm on ' + where + '. Can you beat them?';
     } else { $('challenge').style.display = 'none'; $('menu').classList.remove('has-challenge'); }
+    $('achCount').textContent = unlocked.size + '/' + ACH.length;
+    $('profileLine').textContent = isOnline() ? (profile ? 'Playing as ' + profile.name : 'Online: your runs go on the leaderboards')
+      : online === 'offline' ? 'Leaderboards offline: runs will upload later' : '';
   }
   $('startBtn').onclick = startEndless;
   $('dailyBtn').onclick = startDaily;
@@ -1026,6 +1110,266 @@ if (typeof document !== 'undefined') (function boot() {
     return false;
   };
 
+  // ---------- online: profile, leaderboards (see server/) ----------
+  // Works offline: with no server configured the online features stay hidden; with a server that
+  // is unreachable, finished runs wait in a small queue and upload on the next launch.
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  };
+  let apiBase = '', apiExplicit = false, online = 'off'; // 'off' | 'checking' | 'online' | 'offline'
+  let profile = store.get('rtb_profile', null);          // { token, name }
+  (function resolveApi() {
+    let v = ''; try { v = localStorage.getItem('rtb_api') || ''; } catch (e) {}
+    if (!v) { const m = document.querySelector('meta[name="rtb-api"]'); v = m ? m.content.trim() : ''; }
+    if (v) { apiBase = v.replace(/\/+$/, ''); apiExplicit = true; }
+    else if (/^https?:$/.test(location.protocol) && location.hostname !== 'appassets.androidplatform.net') apiBase = location.origin;
+  })();
+  async function api(method, path, body, withAuth) {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 12000);
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (withAuth && profile) headers.Authorization = 'Bearer ' + profile.token;
+      const res = await fetch(apiBase + path, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: ctl.signal });
+      let data = null; try { data = await res.json(); } catch (e) {}
+      if (!res.ok) { const err = new Error((data && data.error) || 'HTTP ' + res.status); err.status = res.status; throw err; }
+      return data;
+    } finally { clearTimeout(timer); }
+  }
+  const isOnline = () => online === 'online';
+  async function initOnline() {
+    if (!apiBase) return;
+    online = 'checking';
+    try { await api('GET', '/api/health'); online = 'online'; }
+    catch (e) { online = apiExplicit ? 'offline' : 'off'; } // a guessed same-origin server that isn't there is just "no server"
+    refreshMenu();
+    if (!isOnline()) return;
+    if (profile) {
+      try { const me = await api('GET', '/api/me', null, true); adoptProfile(profile.token, me); }
+      catch (e) { if (e.status === 401) { profile = null; store.set('rtb_profile', null); } }
+    }
+    flushRuns();
+  }
+  function adoptProfile(token, me) {
+    profile = { token, name: me.name }; store.set('rtb_profile', profile);
+    if (me.achievements) mergeAchievements(me.achievements);
+    refreshMenu();
+  }
+  async function ensureProfile() {
+    if (profile) return profile;
+    const me = await api('POST', '/api/player', {});
+    adoptProfile(me.token, me);
+    flash('Playing as ' + me.name + ' (rename it in 🏆 Leaderboards)');
+    return profile;
+  }
+  // finished runs: queued so nothing is lost offline, uploaded oldest first
+  let pending = store.get('rtb_pending', []), flushing = null;
+  function queueRun(code) {
+    if (!pending.includes(code)) pending.push(code);
+    if (pending.length > 10) pending = pending.slice(-10);
+    store.set('rtb_pending', pending);
+  }
+  function flushRuns() {
+    if (flushing || !isOnline() || !pending.length) return flushing || Promise.resolve({});
+    flushing = (async () => {
+      const results = {};
+      try {
+        await ensureProfile();
+        while (pending.length) {
+          const code = pending[0];
+          try { results[code] = await api('POST', '/api/runs', { replay: code }, true); }
+          catch (e) {
+            if (!e.status || e.status === 429 || e.status >= 500) break; // try again later
+            results[code] = { error: e.message };                          // rejected: drop it
+          }
+          pending.shift(); store.set('rtb_pending', pending);
+          const r = results[code];
+          if (r && !r.error) {
+            if ((r.alltime && r.alltime.rank <= 10) || (r.daily && r.daily.rank <= 10)) unlock('top10');
+            if (r.daily && r.daily.rank === 1) unlock('daily_champ');
+          }
+        }
+      } catch (e) { /* no profile yet (offline): keep the queue */ }
+      flushing = null;
+      return results;
+    })();
+    return flushing;
+  }
+  async function submitRun(code) {
+    queueRun(code);
+    if (!isOnline()) return null;
+    const results = await flushRuns();
+    return results[code] || null;
+  }
+
+  // ---------- achievements ----------
+  const ACH = [
+    { id: 'first_hop', icon: '🐸', name: 'Liftoff', desc: 'Hop with both hands for the first time' },
+    { id: 'bar5', icon: '🪜', name: 'Rung Rookie', desc: 'Reach bar 5' },
+    { id: 'bar25', icon: '🧗', name: 'Rung Veteran', desc: 'Reach bar 25' },
+    { id: 'h10', icon: '🔟', name: 'Double Digits', desc: 'Climb 10m' },
+    { id: 'h25', icon: '🏢', name: 'Quarter Century', desc: 'Climb 25m' },
+    { id: 'h50', icon: '🦅', name: 'Halfway to Nowhere', desc: 'Climb 50m' },
+    { id: 'h100', icon: '🚀', name: 'Space Program', desc: 'Climb 100m' },
+    { id: 'clutch', icon: '🫳', name: 'Clutch Grip', desc: 'Make a clutch catch' },
+    { id: 'saved', icon: '🛟', name: 'Saved by the Bar', desc: 'Catch a bar while falling' },
+    { id: 'skipper', icon: '⏭️', name: 'Bar Skipper', desc: 'Skip a bar in one move' },
+    { id: 'hand_over_hand', icon: '🤚', name: 'Hand Over Hand', desc: 'Reach a new bar with only one hand' },
+    { id: 'on_empty', icon: '🪫', name: 'Running on Empty', desc: 'Reach a new bar with under 10% stamina' },
+    { id: 'hops10', icon: '🦘', name: 'Hop Scotch', desc: '10 hops in one run' },
+    { id: 'mat', icon: '🧘', name: 'Mat Enthusiast', desc: 'Fall straight onto the mat 5 times' },
+    { id: 'flyer', icon: '🪂', name: 'Frequent Flyer', desc: 'Fall 50 times' },
+    { id: 'daily', icon: '📅', name: 'Daily Grind', desc: 'Finish a Daily Ladder' },
+    { id: 'streak3', icon: '🔥', name: 'Regular', desc: 'Play the Daily Ladder 3 days in a row' },
+    { id: 'ghostbuster', icon: '👻', name: 'Ghostbuster', desc: 'Beat a ghost' },
+    { id: 'share', icon: '📣', name: 'Trash Talker', desc: 'Share a challenge link' },
+    { id: 'top10', icon: '🏆', name: 'Top Ten', desc: 'Make the top 10 on a leaderboard' },
+    { id: 'daily_champ', icon: '👑', name: 'Champion of the Day', desc: "Hold #1 on a Daily Ladder" },
+  ];
+  const ACH_BY_ID = Object.fromEntries(ACH.map((a) => [a.id, a]));
+  let unlocked = new Set(store.get('rtb_ach', []).filter((id) => ACH_BY_ID[id]));
+  let stats = Object.assign({ runs: 0, falls: 0, mat: 0, streak: 0, lastDaily: 0 }, store.get('rtb_stats', {}));
+  let toasts = [], achSyncTimer = null;
+  function unlock(id) {
+    if (unlocked.has(id) || !ACH_BY_ID[id]) return;
+    unlocked.add(id); store.set('rtb_ach', [...unlocked]);
+    toasts.push({ a: ACH_BY_ID[id], t: 0 });
+    SFX.milestone();
+    syncAchievementsSoon(); refreshMenu();
+  }
+  function mergeAchievements(ids) {
+    const before = unlocked.size;
+    for (const id of ids) if (ACH_BY_ID[id]) unlocked.add(id);
+    store.set('rtb_ach', [...unlocked]);
+    if (unlocked.size !== ids.length || before !== unlocked.size) syncAchievementsSoon();
+  }
+  function syncAchievementsSoon() {
+    clearTimeout(achSyncTimer);
+    achSyncTimer = setTimeout(() => {
+      if (!isOnline() || !profile) return;
+      api('PUT', '/api/me/achievements', { ids: [...unlocked] }, true).then((r) => { for (const id of r.achievements) if (ACH_BY_ID[id]) unlocked.add(id); store.set('rtb_ach', [...unlocked]); }).catch(() => {});
+    }, 1500);
+  }
+  // per-run counters for achievements that need them
+  let runHops = 0;
+  function achievementEvent(e) {
+    if (mode !== 'play') return; // replays and the fall replay don't count
+    if (e.type === 'throw' && e.hop) { unlock('first_hop'); if (++runHops >= 10) unlock('hops10'); }
+    else if (e.type === 'catch') {
+      if (e.vy < -2.6 && !e.newBar) unlock('saved');
+      if (e.vy < -2.6 || (e.alone && e.airT > 0.5) || (e.newBar && e.stam < 15)) unlock('clutch');
+      if (e.newBar) {
+        if (g.maxBar >= 5) unlock('bar5');
+        if (g.maxBar >= 25) unlock('bar25');
+        if (e.skipped > 0) unlock('skipper');
+        if (e.alone) unlock('hand_over_hand');
+        if (e.stam < 10) unlock('on_empty');
+      }
+    } else if (e.type === 'milestone') {
+      const m = { 10: 'h10', 25: 'h25', 50: 'h50', 100: 'h100' }[e.value]; if (m) unlock(m);
+    }
+  }
+  function achievementsAfterRun(ghostBeaten) {
+    stats.runs++; stats.falls++;
+    if (g.deathCause === 'floor' && g.maxHeight < 0.5) stats.mat++;
+    if (stats.mat >= 5) unlock('mat');
+    if (stats.falls >= 50) unlock('flyer');
+    if (rec.kind === 'daily' && rec.day === today) {
+      unlock('daily');
+      if (stats.lastDaily !== today) { stats.streak = stats.lastDaily === today - 1 ? stats.streak + 1 : 1; stats.lastDaily = today; }
+      if (stats.streak >= 3) unlock('streak3');
+    }
+    if (ghostBeaten) unlock('ghostbuster');
+    store.set('rtb_stats', stats);
+  }
+
+  // ---------- panels ----------
+  let panel = null, lbBoard = 'daily';
+  function openPanel(id) {
+    panel = id; $(id).classList.remove('hidden');
+    if (id === 'lb') loadBoard(); else renderAchievements();
+  }
+  function closePanel() { if (panel) $(panel).classList.add('hidden'); panel = null; refreshMenu(); }
+  for (const el of document.querySelectorAll('[data-close]')) el.onclick = closePanel;
+  for (const el of document.querySelectorAll('.panel')) el.addEventListener('pointerdown', (e) => { if (e.target === el) closePanel(); });
+  $('lbBtn').onclick = () => openPanel('lb');
+  $('achBtn').onclick = () => openPanel('ach');
+  $('lbDaily').onclick = () => { lbBoard = 'daily'; loadBoard(); };
+  $('lbAll').onclick = () => { lbBoard = 'alltime'; loadBoard(); };
+
+  async function loadBoard() {
+    $('lbDaily').classList.toggle('on', lbBoard === 'daily'); $('lbAll').classList.toggle('on', lbBoard === 'alltime');
+    $('lbDaily').textContent = 'Today';
+    const list = $('lbList'), status = $('lbStatus');
+    list.innerHTML = '';
+    $('profileBox').style.display = isOnline() ? '' : 'none';
+    if (profile) $('nameInput').value = profile.name;
+    if (!isOnline()) {
+      status.textContent = online === 'off' ? 'Leaderboards need the game server (see server/README.md). Your bests and achievements are still saved on this device.'
+        : online === 'checking' ? 'Connecting…' : "Can't reach the leaderboard server right now. Your runs will upload when it's back.";
+      return;
+    }
+    status.textContent = 'Loading…';
+    try {
+      const qs = lbBoard === 'daily' ? '?board=daily&day=' + today : '?board=alltime';
+      const d = await api('GET', '/api/leaderboard' + qs + '&limit=50', null, true);
+      if (panel !== 'lb') return;
+      status.textContent = d.total ? d.total + ' climber' + (d.total === 1 ? '' : 's') + (lbBoard === 'daily' ? ' on Daily Ladder #' + today : ' all-time') : 'No runs yet. Be the first!';
+      const rows = d.entries.slice(); if (d.me) rows.push(null, d.me);
+      for (const e of rows) {
+        const li = document.createElement('li');
+        if (!e) { li.className = 'gap'; li.textContent = '⋯'; list.appendChild(li); continue; }
+        if (e.you) li.className = 'you';
+        const medal = ['🥇', '🥈', '🥉'][e.rank - 1];
+        li.innerHTML = '<span class="rk"></span><span class="nm"></span><span class="ht"></span>';
+        li.querySelector('.rk').innerHTML = medal ? '<span class="medal">' + medal + '</span>' : '#' + e.rank;
+        li.querySelector('.nm').textContent = e.name; if (e.you) li.title = 'You';
+        li.querySelector('.ht').textContent = e.height.toFixed(1) + 'm';
+        li.appendChild(btn('▶', () => playFromBoard(e, false)));
+        li.appendChild(btn('👻', () => playFromBoard(e, true)));
+        li.lastChild.title = 'Race this ghost'; li.children[3].title = 'Watch this run';
+        list.appendChild(li);
+      }
+    } catch (e) { status.textContent = "Couldn't load the leaderboard: " + e.message; }
+  }
+  async function playFromBoard(e, race) {
+    try {
+      const d = await api('GET', '/api/runs/' + e.runId);
+      const r = decodeReplay(d.replay), name = e.you ? 'YOUR BEST' : d.name.toUpperCase().slice(0, 16);
+      closePanel(); $('menu').classList.add('hidden'); $('over').classList.add('hidden');
+      if (race) raceReplay(r, name); else startReplay(r, name);
+    } catch (err) { flash("Couldn't load that run"); }
+  }
+  $('nameSave').onclick = async () => {
+    const name = $('nameInput').value;
+    try { await ensureProfile(); const me = await api('PATCH', '/api/me', { name }, true); adoptProfile(profile.token, me); flash('Name saved'); loadBoard(); }
+    catch (e) { flash(e.message); }
+  };
+  $('syncShow').onclick = async () => {
+    try { await ensureProfile(); $('syncCode').textContent = profile.token; } catch (e) { flash(e.message); }
+  };
+  $('linkBtn').onclick = async () => {
+    const code = $('linkInput').value.trim();
+    if (!code) return;
+    try {
+      const prev = profile; profile = { token: code, name: '' };
+      let me;
+      try { me = await api('GET', '/api/me', null, true); } catch (e) { profile = prev; throw e; }
+      adoptProfile(code.toUpperCase(), me); $('linkInput').value = ''; $('syncCode').textContent = 'hidden';
+      flash('Linked! Playing as ' + me.name); loadBoard(); flushRuns();
+    } catch (e) { flash(e.status === 401 ? "That sync code didn't match a profile" : e.message); }
+  };
+  function renderAchievements() {
+    $('achSummary').textContent = unlocked.size + ' / ' + ACH.length + ' unlocked' + (isOnline() && profile ? ' · synced to your profile' : '');
+    const grid = $('achGrid'); grid.innerHTML = '';
+    for (const a of ACH) {
+      const d = document.createElement('div'); d.className = 'achcard' + (unlocked.has(a.id) ? '' : ' locked');
+      d.innerHTML = '<div class="ic"></div><div class="an"></div><div class="ad"></div>';
+      d.children[0].textContent = a.icon; d.children[1].textContent = a.name; d.children[2].textContent = a.desc;
+      grid.appendChild(d);
+    }
+  }
+
   // ---------- replay links ----------
   function replayUrl(code) { return (androidApp ? androidApp.shareBaseUrl() : location.href.split('#')[0]) + '#r=' + code; }
   async function shareRun(r, height) {
@@ -1033,6 +1377,7 @@ if (typeof document !== 'undefined') (function boot() {
     const where = r.kind === 'daily' ? 'Daily Ladder #' + r.day : 'Raising the Bar';
     const text = 'I climbed ' + height.toFixed(1) + 'm on ' + where + '. Think you can beat my ghost?';
     const local = location.protocol === 'file:';
+    unlock('share');
     if (androidApp) { androidApp.share(text, url); return; }
     try {
       if (isTouch && navigator.share && !local) { await navigator.share({ title: 'Raising the Bar', text, url }); return; }
@@ -1051,7 +1396,7 @@ if (typeof document !== 'undefined') (function boot() {
     } catch (e) { flash("That replay link didn't work"); }
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   }
-  readHashReplay(); refreshMenu();
+  readHashReplay(); refreshMenu(); initOnline();
 
   const QUIPS = [
     'BAR NONE? More like BARF.', 'You raised the bar too far.', 'Gravity wins again.', 'Absolutely no pull-up.',
@@ -1102,10 +1447,11 @@ if (typeof document !== 'undefined') (function boot() {
     $('oScore').textContent = score(g);
     $('newBest').style.display = newBestThisRun && h > 1 ? 'inline-block' : 'none';
     const vs = $('oVs'); vs.className = 'vs'; vs.textContent = '';
+    let ghostBeaten = false;
     let q = pick(QUIPS);
     if (gh) {
       const diff = h - gh.max;
-      if (diff > 0.05) { vs.className = 'vs win'; vs.textContent = 'You beat ' + gh.name + ' by ' + diff.toFixed(1) + 'm!'; q = pick(Q_GHOST_WIN); }
+      if (diff > 0.05) { ghostBeaten = true; vs.className = 'vs win'; vs.textContent = 'You beat ' + gh.name + ' by ' + diff.toFixed(1) + 'm!'; q = pick(Q_GHOST_WIN); }
       else vs.className = 'vs lose', vs.textContent = (-diff).toFixed(1) + 'm short of ' + gh.name + ' (' + gh.max.toFixed(1) + 'm)';
     }
     if (g.deathCause === 'floor' && h < 0.5) q = pick(Q_FLOOR);
@@ -1114,10 +1460,26 @@ if (typeof document !== 'undefined') (function boot() {
     const causes = { floor: 'Cause: met the floor', exhausted: 'Cause: ran out of stamina', fall: 'Cause: missed the catch' };
     $('oCause').textContent = (causes[g.deathCause] || '') + ' · Bars climbed: ' + g.maxBar + (g.hops ? ' · Hops: ' + g.hops : '');
     const r = lastRec;
+    achievementsAfterRun(ghostBeaten);
+    const rankEl = $('oRank'); rankEl.textContent = '';
+    if (apiBase && online !== 'off' && h >= 0.5) {
+      rankEl.textContent = isOnline() ? 'Submitting to the leaderboard…' : 'Leaderboards offline: this run will upload later';
+      const mine = r;
+      submitRun(encodeReplay(r)).then((res) => {
+        if (lastRec !== mine || mode !== 'over') return;
+        if (!res) { rankEl.textContent = isOnline() ? '' : 'Leaderboards offline: this run will upload later'; return; }
+        if (res.error) { rankEl.textContent = 'Not ranked: ' + res.error; return; }
+        const parts = [];
+        if (res.daily) parts.push('#' + res.daily.rank + ' today' + (res.daily.improved ? '' : ' (best ' + res.daily.best.toFixed(1) + 'm)'));
+        parts.push('#' + res.alltime.rank + ' all-time' + (res.alltime.improved ? '' : ' (best ' + res.alltime.best.toFixed(1) + 'm)'));
+        rankEl.textContent = '🏆 ' + parts.join(' · ') + ((res.alltime.improved || (res.daily && res.daily.improved)) ? ' · new personal best!' : '');
+      });
+    }
     setButtons(btn('Try Again', retry), [
       btn('▶ Watch replay', () => startReplay(r, 'YOU')),
       btn('👻 Race this run', () => raceReplay(r, 'YOUR GHOST')),
       btn('🔗 Share challenge', () => shareRun(r, h)),
+      btn('🏆 Leaderboards', () => openPanel('lb')),
       btn('Main menu', toMenu),
     ]);
     $('oHint').textContent = 'Enter / Space / R to retry';
@@ -1183,6 +1545,7 @@ if (typeof document !== 'undefined') (function boot() {
     g.events.length = 0;
   }
   function fx(e) {
+    achievementEvent(e);
     switch (e.type) {
       case 'catch': {
         SFX.grab(e.speed); puff(e.x, e.y, 8, '#ffffff', 1.2, 0.035);
@@ -1521,7 +1884,7 @@ if (typeof document !== 'undefined') (function boot() {
   }
   function toScreen(x, y, sx, sy) { return [(x - cam.x - sx) * scale + W / 2, Vh / 2 - (y - cam.y - sy) * scale]; }
 
-  function render() {
+  function render(dt) {
     const sx = (Math.random() - 0.5) * cam.shake, sy = (Math.random() - 0.5) * cam.shake;
     const hView = cam.y - (g.headStartY || 2);
     // sky
@@ -1668,6 +2031,7 @@ if (typeof document !== 'undefined') (function boot() {
     }
     if (mode === 'play' || mode === 'over' || mode === 'replay') drawHUD();
     if (mode === 'fallcam' && fc) drawFallCam();
+    drawToasts(dt || 1 / 60);
     if (flashMsg) {
       ctx.globalAlpha = clamp(flashMsg.life, 0, 1); ctx.font = '900 20px Trebuchet MS, sans-serif'; ctx.fillStyle = '#1d1b2f';
       ctx.fillText(flashMsg.t, W / 2, 90); ctx.globalAlpha = 1;
@@ -1677,6 +2041,24 @@ if (typeof document !== 'undefined') (function boot() {
       ctx.fillStyle = '#fff'; ctx.font = '900 56px Impact, Arial Black, sans-serif'; ctx.fillText('PAUSED', W / 2, Vh / 2 - 10);
       ctx.font = 'bold 18px Trebuchet MS, sans-serif'; ctx.fillText(isTouch ? 'Tap anywhere to resume' : 'Esc / Enter to resume', W / 2, Vh / 2 + 36);
     }
+  }
+
+  // achievement unlock banner, slides down from the top
+  function drawToasts(dt) {
+    if (!toasts.length) return;
+    const t = toasts[0]; t.t += dt;
+    if (t.t > 3.4) { toasts.shift(); return; }
+    const k = Math.min(1, t.t / 0.25, (3.4 - t.t) / 0.25);
+    const w = Math.min(380, W - 24), h = 58, x = W / 2 - w / 2, y = safe.t + 8 - (1 - k) * (h + 20);
+    ctx.save(); ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#1d1b2f'; roundRect(x + 4, y + 4, w, h, 12); ctx.fill();
+    ctx.fillStyle = '#ffd23f'; roundRect(x, y, w, h, 12); ctx.fill();
+    ctx.strokeStyle = '#1d1b2f'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.font = '30px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#1d1b2f'; ctx.fillText(t.a.icon, x + 32, y + h / 2 + 1);
+    ctx.textAlign = 'left'; ctx.font = '900 11px Trebuchet MS, sans-serif'; ctx.fillText('ACHIEVEMENT UNLOCKED', x + 60, y + 17);
+    ctx.font = '900 19px Trebuchet MS, sans-serif'; ctx.fillText(t.a.name, x + 60, y + 36);
+    ctx.font = 'bold 11px Trebuchet MS, sans-serif'; ctx.globalAlpha = 0.75; ctx.fillText(t.a.desc, x + 60, y + 50);
+    ctx.restore();
   }
 
   function currentBest() {

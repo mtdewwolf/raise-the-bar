@@ -3,6 +3,8 @@
 
     <!-- Haptic buzzes on slips and falls (navigator.vibrate in the game). -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- leaderboards, achievements sync (the game still works offline) -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"
