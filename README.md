@@ -6,6 +6,25 @@ A two-key, physics-driven salmon-ladder climbing game. **Two keys. One ladder. H
 
 Open `index.html` in any modern desktop browser. That's it: one self-contained file with no dependencies, no build step and no network access.
 
+## Android
+
+The `android/` folder is an Android app that wraps the same `index.html` in a full-screen WebView. Nothing is duplicated: the build copies the game into the APK. The app runs fully offline and adds:
+
+- a full-screen immersive mode that keeps the screen on while you play
+- the **back button**, which pauses the climb, then returns to the menu, then exits
+- the Android share sheet for **Share challenge**, plus opening shared challenge links in the app
+- haptics, sound and saved progress, same as the browser version
+- foldable support, tuned for the Galaxy Z Fold inner screen:
+  - Folding or unfolding mid-run keeps your climb going instead of restarting the app. Split screen and pop-up view work too.
+  - Rendering is sharp at the inner screen's pixel density.
+  - **Flex mode:** half-fold the phone in landscape (tabletop) and the climb stays on the top half while the bottom half becomes a controller with large left and right pads.
+
+**Get an APK:** every push that touches the game builds one in GitHub Actions (*Android APK* workflow → *raising-the-bar-apk* artifact). Install `app-release.apk` on your phone; you may need to allow installs from unknown sources.
+
+**Build it yourself:** open `android/` in Android Studio, or run `./gradlew assembleRelease` from `android/` (needs JDK 17 and the Android SDK). The APK ends up in `android/app/build/outputs/apk/`. Release builds use the debug signing key so they install straight away. Set up your own `signingConfig` before publishing to Google Play.
+
+Challenge links from the app point at `https://mtdewwolf.github.io/raise-the-bar/`. That URL only works for friends if the game is published on GitHub Pages. To use a different address, change `shareHost` / `sharePath` in `android/app/build.gradle`.
+
 ## Controls
 
 | Key | Action |

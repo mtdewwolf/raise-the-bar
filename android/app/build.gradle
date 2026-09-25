@@ -1,0 +1,70 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The game itself lives in ../index.html (the same file the browser version uses).
+// It's copied into the APK's assets at build time so there is only one copy to maintain.
+def gameAssetsDir = layout.buildDirectory.dir('generated/gameAssets')
+def copyGame = tasks.register('copyGame', Copy) {
+    from rootProject.file('../index.html')
+    into gameAssetsDir
+}
+
+android {
+    namespace 'com.raisethebar.game'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.raisethebar.game'
+        minSdk 26
+        targetSdk 35
+        versionCode 3
+        versionName '1.1.1'
+
+        // Where shared challenge links point. Replay links only work for friends once the
+        // web version is hosted here (e.g. GitHub Pages). The app also opens these links.
+        def shareHost = 'mtdewwolf.github.io'
+        def sharePath = '/raise-the-bar/'
+        buildConfigField 'String', 'SHARE_BASE_URL', "\"https://${shareHost}${sharePath}\""
+        manifestPlaceholders = [shareHost: shareHost, sharePath: sharePath]
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Signed with the debug key so `assembleRelease` produces an installable APK out of
+            // the box. Swap in your own signingConfig before publishing to the Play Store.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
+
+    sourceSets {
+        main.assets.srcDir(gameAssetsDir)
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+    // hinge / fold posture on foldables (Galaxy Z Fold Flex mode)
+    implementation 'androidx.window:window-java:1.3.0'
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+}
+
+tasks.named('preBuild') { dependsOn copyGame }
