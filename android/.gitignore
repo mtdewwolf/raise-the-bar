@@ -7,3 +7,5 @@ local.properties
 captures/
 *.keystore
 *.jks
+# the shared, public test signing key (see app/build.gradle) is meant to be committed
+!app/test-signing.keystore

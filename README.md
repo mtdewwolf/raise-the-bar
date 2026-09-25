@@ -21,7 +21,9 @@ The `android/` folder is an Android app that wraps the same `index.html` in a fu
 
 **Get an APK:** every push that touches the game builds one in GitHub Actions (*Android APK* workflow → *raising-the-bar-apk* artifact). Install `app-release.apk` on your phone; you may need to allow installs from unknown sources.
 
-**Build it yourself:** open `android/` in Android Studio, or run `./gradlew assembleRelease` from `android/` (needs JDK 17 and the Android SDK). The APK ends up in `android/app/build/outputs/apk/`. Release builds use the debug signing key so they install straight away. Set up your own `signingConfig` before publishing to Google Play.
+**Build it yourself:** open `android/` in Android Studio, or run `./gradlew assembleRelease` from `android/` (needs JDK 17 and the Android SDK). The APK ends up in `android/app/build/outputs/apk/`. All builds are signed with a shared test key that's committed to the repo (`android/app/test-signing.keystore`). Because every build has the same signature, a new APK installs as an update over the old one and keeps your saved bests. The key is public, so before publishing to Google Play set `RTB_KEYSTORE_FILE`, `RTB_KEYSTORE_PASSWORD`, `RTB_KEY_ALIAS` and `RTB_KEY_PASSWORD` (as Gradle properties or environment variables) to use your own private key for release builds.
+
+*Upgrading from a build older than 1.2.0:* those were signed with a throwaway key, so uninstall the old app once before installing 1.2.0. Updates install normally after that.
 
 Challenge links from the app point at `https://mtdewwolf.github.io/raise-the-bar/`. That URL only works for friends if the game is published on GitHub Pages. To use a different address, change `shareHost` / `sharePath` in `android/app/build.gradle`.
 
