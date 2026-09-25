@@ -13,6 +13,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -47,18 +48,33 @@ public class MainActivity extends Activity {
     private WindowInfoTrackerCallbackAdapter windowInfo;
     private final Consumer<WindowLayoutInfo> layoutListener = this::onWindowLayout;
     private String foldArgs = "null"; // last hinge position sent to the game
+    private long lastRendererLoss;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        enterImmersive();
 
         assetLoader = new WebViewAssetLoader.Builder()
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .build();
 
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+        createWebView();
+        enterImmersive(); // needs the decor view that setContentView creates (crashes before it on Android 11+)
+        windowInfo = new WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(this));
+
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
+        }
+
+        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
+            webView.loadUrl(gameUrlFor(getIntent()));
+        }
+    }
+
+    private void createWebView() {
         webView = new WebView(this);
         webView.setBackgroundColor(getColor(R.color.sky));
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -86,6 +102,14 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                // The game's renderer crashed or was killed to free memory. Without this the whole
+                // app would be killed with it; instead start a fresh WebView and reload the game.
+                recoverFromRendererLoss();
+                return true;
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
                 if (WebViewAssetLoader.DEFAULT_DOMAIN.equals(url.getHost())) return false;
@@ -94,16 +118,19 @@ public class MainActivity extends Activity {
             }
         });
         setContentView(webView);
-        windowInfo = new WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(this));
+    }
 
-        if (Build.VERSION.SDK_INT >= 33) {
-            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
-                    OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
+    private void recoverFromRendererLoss() {
+        long now = System.currentTimeMillis();
+        if (now - lastRendererLoss < 10_000) { // crashing on every load: give up quietly
+            finish();
+            return;
         }
-
-        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
-            webView.loadUrl(gameUrlFor(getIntent()));
-        }
+        lastRendererLoss = now;
+        WebView dead = webView;
+        createWebView();
+        dead.destroy();
+        webView.loadUrl(GAME_URL);
     }
 
     @Override
