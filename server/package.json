@@ -1,0 +1,10 @@
+{
+  "name": "raising-the-bar-server",
+  "private": true,
+  "description": "Leaderboards, replay verification and achievement sync for Raising the Bar",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node --no-warnings server.js",
+    "test": "node --no-warnings --test test/*.test.js"
+  }
+}

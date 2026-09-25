@@ -5,9 +5,16 @@ plugins {
 // The game itself lives in ../index.html (the same file the browser version uses).
 // It's copied into the APK's assets at build time so there is only one copy to maintain.
 def gameAssetsDir = layout.buildDirectory.dir('generated/gameAssets')
+// Leaderboard server: ./gradlew assembleRelease -PrtbApi=https://your-server (or RTB_API env var).
+// Without it the app still plays fully offline, just with no online leaderboards.
+def rtbApi = (project.findProperty('rtbApi') ?: System.getenv('RTB_API') ?: '').toString().trim()
 def copyGame = tasks.register('copyGame', Copy) {
     from rootProject.file('../index.html')
     into gameAssetsDir
+    inputs.property('rtbApi', rtbApi)
+    if (rtbApi) {
+        filter { String line -> line.replace('<meta name="rtb-api" content="">', '<meta name="rtb-api" content="' + rtbApi + '">') }
+    }
 }
 
 android {

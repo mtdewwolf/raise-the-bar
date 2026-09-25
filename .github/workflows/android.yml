@@ -21,6 +21,9 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew assembleDebug assembleRelease testDebugUnitTest lint
+        env:
+          # optional: set a repository variable RTB_API to your leaderboard server's URL
+          RTB_API: ${{ vars.RTB_API }}
       - uses: actions/upload-artifact@v4
         with:
           name: raising-the-bar-apk
