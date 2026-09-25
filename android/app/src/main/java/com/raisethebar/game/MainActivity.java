@@ -3,6 +3,7 @@ package com.raisethebar.game;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -19,7 +20,14 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.window.OnBackInvokedDispatcher;
 
+import androidx.core.content.ContextCompat;
+import androidx.core.util.Consumer;
 import androidx.webkit.WebViewAssetLoader;
+import androidx.window.java.layout.WindowInfoTrackerCallbackAdapter;
+import androidx.window.layout.DisplayFeature;
+import androidx.window.layout.FoldingFeature;
+import androidx.window.layout.WindowInfoTracker;
+import androidx.window.layout.WindowLayoutInfo;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,6 +44,9 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private WebViewAssetLoader assetLoader;
+    private WindowInfoTrackerCallbackAdapter windowInfo;
+    private final Consumer<WindowLayoutInfo> layoutListener = this::onWindowLayout;
+    private String foldArgs = "null"; // last hinge position sent to the game
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,6 +81,11 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPageFinished(WebView view, String url) {
+                sendFold();
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
                 if (WebViewAssetLoader.DEFAULT_DOMAIN.equals(url.getHost())) return false;
@@ -78,6 +94,7 @@ public class MainActivity extends Activity {
             }
         });
         setContentView(webView);
+        windowInfo = new WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(this));
 
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -155,6 +172,43 @@ public class MainActivity extends Activity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) enterImmersive();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        windowInfo.addWindowLayoutInfoListener(this, ContextCompat.getMainExecutor(this), layoutListener);
+    }
+
+    @Override
+    protected void onStop() {
+        windowInfo.removeWindowLayoutInfoListener(layoutListener);
+        super.onStop();
+    }
+
+    /**
+     * Flex mode: when a foldable is half open with a horizontal hinge (tabletop), tell the game where
+     * the hinge is so it keeps the climb above the fold and turns the lower half into a controller.
+     */
+    private void onWindowLayout(WindowLayoutInfo info) {
+        String args = "null";
+        for (DisplayFeature f : info.getDisplayFeatures()) {
+            if (f instanceof FoldingFeature fold
+                    && fold.getState() == FoldingFeature.State.HALF_OPENED
+                    && fold.getOrientation() == FoldingFeature.Orientation.HORIZONTAL) {
+                Rect b = fold.getBounds(); // window coordinates, in physical pixels
+                int[] loc = new int[2];
+                webView.getLocationInWindow(loc);
+                float density = getResources().getDisplayMetrics().density; // CSS px -> physical px
+                args = ((b.top - loc[1]) / density) + "," + ((b.bottom - loc[1]) / density);
+            }
+        }
+        foldArgs = args;
+        sendFold();
+    }
+
+    private void sendFold() {
+        webView.evaluateJavascript("window.rtbSetFold && window.rtbSetFold(" + foldArgs + ")", null);
     }
 
     @Override

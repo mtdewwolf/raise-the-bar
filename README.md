@@ -14,6 +14,10 @@ The `android/` folder is an Android app that wraps the same `index.html` in a fu
 - the **back button**, which pauses the climb, then returns to the menu, then exits
 - the Android share sheet for **Share challenge**, plus opening shared challenge links in the app
 - haptics, sound and saved progress, same as the browser version
+- foldable support, tuned for the Galaxy Z Fold inner screen:
+  - Folding or unfolding mid-run keeps your climb going instead of restarting the app. Split screen and pop-up view work too.
+  - Rendering is sharp at the inner screen's pixel density.
+  - **Flex mode:** half-fold the phone in landscape (tabletop) and the climb stays on the top half while the bottom half becomes a controller with large left and right pads.
 
 **Get an APK:** every push that touches the game builds one in GitHub Actions (*Android APK* workflow → *raising-the-bar-apk* artifact). Install `app-release.apk` on your phone; you may need to allow installs from unknown sources.
 

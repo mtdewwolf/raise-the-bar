@@ -30,6 +30,9 @@
     overflow-y: auto; touch-action: pan-y;
   }
   .overlay.hidden { opacity: 0; pointer-events: none; }
+  body.tabletop .overlay { bottom: var(--hinge-inset, 0px); }
+  body.tabletop .card { zoom: 0.72; }
+  body.tabletop .tips, body.tabletop .hint, body.tabletop .touchpads { display: none; }
   .card {
     background: var(--paper); border: 4px solid var(--ink); border-radius: 20px;
     box-shadow: 10px 10px 0 var(--ink); padding: 28px 34px; max-width: 520px; width: 100%;
@@ -758,18 +761,29 @@ if (typeof document !== 'undefined') (function boot() {
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const $ = (id) => document.getElementById(id);
-  let W = 0, Hh = 0, dpr = 1, scale = 100, safe = { t: 0, r: 0, b: 0, l: 0 };
+  // Vh is the height of the world view: the whole screen, or the part above the hinge in tabletop mode
+  let W = 0, Hh = 0, Vh = 0, dpr = 1, scale = 100, safe = { t: 0, r: 0, b: 0, l: 0 };
+  // Horizontal hinge of a half-open foldable (e.g. Galaxy Z Fold Flex mode), in CSS px, or null.
+  // Set by the Android app through window.rtbSetFold.
+  let fold = null;
 
   function resize() {
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth; Hh = window.innerHeight;
+    // sharp on high-density screens like a foldable's inner display, within a sane pixel budget
+    dpr = Math.min(window.devicePixelRatio || 1, 3, Math.sqrt(6e6 / Math.max(1, W * Hh)));
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(Hh * dpr);
-    scale = Hh / 7.2;
+    const tabletop = fold && fold.top > Hh * 0.3 && fold.bottom < Hh * 0.8;
+    Vh = tabletop ? fold.top : Hh;
+    document.body.classList.toggle('tabletop', !!tabletop);
+    document.documentElement.style.setProperty('--hinge-inset', tabletop ? (Hh - fold.top) + 'px' : '0px');
+    scale = Vh / 7.2;
     if (W / scale < 4.4) scale = W / 4.4;
     const cs = getComputedStyle(document.getElementById('safe'));
     safe = { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
   }
   window.addEventListener('resize', resize); resize();
+  window.rtbSetFold = (top, bottom) => { fold = top == null ? null : { top, bottom }; resize(); };
+  const tabletop = () => Vh < Hh;
 
   // ---------- storage ----------
   let best = 0;
@@ -1267,7 +1281,9 @@ if (typeof document !== 'undefined') (function boot() {
     let cx = 0, cy = 0; for (const p of P) { cx += p.x * p.m; cy += p.y * p.m; } cx /= TOTAL_M; cy /= TOTAL_M;
     const dying = g.state === 'dying';
     // keep the climber centred in the space left between the top and bottom HUD
-    const L = hudLayout(), hudShift = mode === 'play' || mode === 'replay' ? (L.bottom - L.top) / 2 / scale : 0;
+    // (in tabletop mode the bottom HUD sits below the hinge, outside the world view)
+    const L = hudLayout(), below = Math.max(0, L.bottom - (Hh - Vh));
+    const hudShift = mode === 'play' || mode === 'replay' ? (below - L.top) / 2 / scale : 0;
     const ty = Math.max((dying ? cy : cy + 0.9) - hudShift, 2.9);
     const rate = dying ? 5 : 3.2;
     cam.y += (ty - cam.y) * (1 - Math.exp(-dt * rate));
@@ -1294,9 +1310,9 @@ if (typeof document !== 'undefined') (function boot() {
   function hash(n) { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 
   function worldTransform(sx, sy) {
-    ctx.setTransform(dpr * scale, 0, 0, -dpr * scale, dpr * (W / 2 - (cam.x + sx) * scale), dpr * (Hh / 2 + (cam.y + sy) * scale));
+    ctx.setTransform(dpr * scale, 0, 0, -dpr * scale, dpr * (W / 2 - (cam.x + sx) * scale), dpr * (Vh / 2 + (cam.y + sy) * scale));
   }
-  function toScreen(x, y, sx, sy) { return [(x - cam.x - sx) * scale + W / 2, Hh / 2 - (y - cam.y - sy) * scale]; }
+  function toScreen(x, y, sx, sy) { return [(x - cam.x - sx) * scale + W / 2, Vh / 2 - (y - cam.y - sy) * scale]; }
 
   function render() {
     const sx = (Math.random() - 0.5) * cam.shake, sy = (Math.random() - 0.5) * cam.shake;
@@ -1323,7 +1339,7 @@ if (typeof document !== 'undefined') (function boot() {
       for (let k = 0; k < 2; k++) {
         const id = b * 2 + k;
         const wx = (hash(id) - 0.5) * 14, wy = b * 3 + hash(id + 7) * 3;
-        const X = W / 2 + (wx - cam.x * par) * scale * 0.6, Y = Hh / 2 - (wy - cam.y * par) * scale * 0.6;
+        const X = W / 2 + (wx - cam.x * par) * scale * 0.6, Y = Vh / 2 - (wy - cam.y * par) * scale * 0.6;
         const s = (0.6 + hash(id + 3)) * scale * 0.5;
         ctx.beginPath();
         ctx.ellipse(X, Y, s * 1.4, s * 0.45, 0, 0, Math.PI * 2);
@@ -1334,7 +1350,7 @@ if (typeof document !== 'undefined') (function boot() {
     }
 
     worldTransform(sx, sy);
-    const viewTop = cam.y + Hh / scale / 2 + 1, viewBot = cam.y - Hh / scale / 2 - 1;
+    const viewTop = cam.y + Vh / scale / 2 + 1, viewBot = cam.y - (Hh - Vh / 2) / scale - 1;
     // backboard
     ctx.fillStyle = '#c98b52'; ctx.fillRect(-1.75, Math.max(0, viewBot), 3.5, viewTop - Math.max(0, viewBot));
     ctx.strokeStyle = 'rgba(90,50,20,0.25)'; ctx.lineWidth = 0.02;
@@ -1424,6 +1440,16 @@ if (typeof document !== 'undefined') (function boot() {
       ctx.beginPath(); ctx.moveTo(X - w / 2 + 10, Y + 14); ctx.lineTo(X - w / 2 - 4, Y + 26); ctx.lineTo(X - w / 2 + 22, Y + 14); ctx.fill();
       ctx.fillStyle = '#1d1b2f'; ctx.fillText(bubble.t, X, Y + 1);
     }
+    // tabletop: a controller deck below the hinge
+    if (tabletop()) {
+      ctx.fillStyle = '#3a3850'; ctx.fillRect(0, Vh, W, Hh - Vh);
+      ctx.fillStyle = '#1d1b2f'; ctx.fillRect(0, Vh, W, 6);
+      if (mode === 'menu') {
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = 'rgba(255,255,255,0.75)';
+        ctx.font = '900 22px Trebuchet MS, sans-serif'; ctx.fillText('FLEX MODE', W / 2, (Vh + Hh) / 2 - 16);
+        ctx.font = 'bold 16px Trebuchet MS, sans-serif'; ctx.fillText('This half is your controller: left = S, right = K', W / 2, (Vh + Hh) / 2 + 14);
+      }
+    }
     if (mode === 'play' || mode === 'over' || mode === 'replay') drawHUD();
     if (flashMsg) {
       ctx.globalAlpha = clamp(flashMsg.life, 0, 1); ctx.font = '900 20px Trebuchet MS, sans-serif'; ctx.fillStyle = '#1d1b2f';
@@ -1431,8 +1457,8 @@ if (typeof document !== 'undefined') (function boot() {
     }
     if (mode === 'play' && paused) {
       ctx.fillStyle = 'rgba(29,27,47,0.5)'; ctx.fillRect(0, 0, W, Hh);
-      ctx.fillStyle = '#fff'; ctx.font = '900 56px Impact, Arial Black, sans-serif'; ctx.fillText('PAUSED', W / 2, Hh / 2 - 10);
-      ctx.font = 'bold 18px Trebuchet MS, sans-serif'; ctx.fillText(isTouch ? 'Tap anywhere to resume' : 'Esc / Enter to resume', W / 2, Hh / 2 + 36);
+      ctx.fillStyle = '#fff'; ctx.font = '900 56px Impact, Arial Black, sans-serif'; ctx.fillText('PAUSED', W / 2, Vh / 2 - 10);
+      ctx.font = 'bold 18px Trebuchet MS, sans-serif'; ctx.fillText(isTouch ? 'Tap anywhere to resume' : 'Esc / Enter to resume', W / 2, Vh / 2 + 36);
     }
   }
 
@@ -1573,7 +1599,10 @@ if (typeof document !== 'undefined') (function boot() {
   // bottom HUD geometry; stamina bar sits between the key pads when there is room
   function hudLayout() {
     const pad = 18, pl = pad + safe.l, pr = pad + safe.r, pb = pad + safe.b;
-    const kw = isTouch ? Math.min(170, W / 2 - pl - 8) : 142, kh = isTouch ? 64 : 52;
+    // tabletop: the lower half of the fold is the controller, so the pads grow to fill it
+    const big = tabletop() && isTouch;
+    const kw = big ? Math.min(280, W / 2 - pl - 8) : isTouch ? Math.min(170, W / 2 - pl - 8) : 142;
+    const kh = big ? clamp(Hh - Vh - pb - 110, 64, 160) : isTouch ? 64 : 52;
     const mid = W - pl - pr - 2 * kw - 32;
     const narrow = mid < 220;
     return { kw, kh, mid, narrow, bottom: pb + kh + (narrow ? 60 : 8), top: pad + safe.t + 84 };
@@ -1635,7 +1664,7 @@ if (typeof document !== 'undefined') (function boot() {
     const narrow = L.narrow, kw = L.kw, kh = L.kh;
     const bw = narrow ? Math.min(420, W - pl - pr) : Math.min(420, L.mid), bh = 20, bx = W / 2 - bw / 2, by = narrow ? Hh - pb - kh - 30 : Hh - pb - kh / 2 - 6;
     ctx.textAlign = 'center';
-    ctx.font = '900 13px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.85)';
+    ctx.font = '900 13px Trebuchet MS, sans-serif'; ctx.fillStyle = tabletop() ? 'rgba(255,255,255,0.8)' : 'rgba(29,27,47,0.85)';
     const status = s > 0.7 ? 'FRESH' : s > 0.45 ? 'WARMED UP' : s > 0.25 ? 'TIRED' : s > 0.05 ? 'COOKED' : 'EXHAUSTED';
     ctx.fillText('STAMINA — ' + status, W / 2, by - 8);
     const blink = s < 0.25 && Math.floor(performance.now() / 180) % 2 === 0;
