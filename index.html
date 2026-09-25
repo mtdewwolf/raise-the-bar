@@ -978,13 +978,23 @@ if (typeof document !== 'undefined') (function boot() {
   $('raceBtn').onclick = () => raceReplay(challenge.rec, 'RIVAL');
   $('watchBtn').onclick = () => startReplay(challenge.rec, 'RIVAL');
 
+  // ---------- Android app (android/): native bridge for sharing and the back button ----------
+  const androidApp = window.RTBAndroid || null;
+  window.rtbBack = () => { // returns true if the game handled the back press
+    if (mode === 'play' && !paused) { paused = true; releasePointers(); return true; }
+    if (mode === 'play' || mode === 'over') { toMenu(); return true; }
+    if (mode === 'replay') { skipReplay(); return true; }
+    return false;
+  };
+
   // ---------- replay links ----------
-  function replayUrl(code) { return location.href.split('#')[0] + '#r=' + code; }
+  function replayUrl(code) { return (androidApp ? androidApp.shareBaseUrl() : location.href.split('#')[0]) + '#r=' + code; }
   async function shareRun(r, height) {
     const code = encodeReplay(r), url = replayUrl(code);
     const where = r.kind === 'daily' ? 'Daily Ladder #' + r.day : 'Raising the Bar';
     const text = 'I climbed ' + height.toFixed(1) + 'm on ' + where + '. Think you can beat my ghost?';
     const local = location.protocol === 'file:';
+    if (androidApp) { androidApp.share(text, url); return; }
     try {
       if (isTouch && navigator.share && !local) { await navigator.share({ title: 'Raising the Bar', text, url }); return; }
       await navigator.clipboard.writeText(text + ' ' + url);
