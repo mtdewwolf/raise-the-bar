@@ -71,6 +71,7 @@
   .quip { font-size: 21px; font-style: italic; font-weight: bold; margin: 14px 0 20px; min-height: 1.4em; }
   .cause { font-size: 14px; opacity: .7; margin-top: -10px; margin-bottom: 14px; }
   button.daily { background: #2f7bff; font-size: 20px; padding: 10px 24px; }
+  button.toggle { font-size: 14px; padding: 6px 14px; margin-top: 10px; box-shadow: 0 4px 0 var(--ink); }
   .dailyinfo { font-size: 13px; font-weight: bold; opacity: .75; min-height: 1.2em; margin-top: 2px; }
   .challenge { background: #ffd23f; border: 3px solid var(--ink); border-radius: 14px; padding: 10px 12px 12px; margin: -6px 0 16px; transform: rotate(1deg); }
   #menu.has-challenge .tips, #menu.has-challenge .sub { display: none; }
@@ -130,7 +131,8 @@
     <button id="startBtn">Start</button>
     <button id="dailyBtn" class="daily">Daily Ladder</button>
     <div id="dailyInfo" class="dailyinfo"></div>
-    <div class="hint kb-only">Enter / Space to start &middot; D for the daily &middot; M to mute &middot; Esc to pause &middot; touch works too</div>
+    <button id="bloodBtn" class="secondary toggle"></button>
+    <div class="hint kb-only">Enter / Space to start &middot; D for the daily &middot; M to mute &middot; B for blood &middot; Esc to pause &middot; touch works too</div>
     <div class="hint touch-only">Tip: play in landscape or portrait &middot; ❚❚ button to pause</div>
   </div>
 </div>
@@ -844,6 +846,7 @@ if (typeof document !== 'undefined') (function boot() {
     if (e.repeat) return;
     const k = e.key;
     if (k === 'm' || k === 'M') { muted = !muted; flash(muted ? 'MUTED' : 'SOUND ON'); return; }
+    if (k === 'b' || k === 'B') { setBlood(!blood); flash(blood ? 'BLOOD ON' : 'BLOOD OFF'); return; }
     if (mode === 'menu' && (k === 'Enter' || k === ' ')) { e.preventDefault(); if (challenge) raceReplay(challenge.rec, 'RIVAL'); else startEndless(); }
     else if (mode === 'menu' && (k === 'd' || k === 'D')) startDaily();
     else if (mode === 'over' && (k === 'Enter' || k === ' ' || k === 'r' || k === 'R')) { e.preventDefault(); if (overPrimary) overPrimary(); }
@@ -925,7 +928,19 @@ if (typeof document !== 'undefined') (function boot() {
   let daily = loadDaily();
   function saveDaily() { try { localStorage.setItem('rtb_daily', JSON.stringify(daily)); } catch (e) {} }
 
+  // blood on floor impacts (toggle: menu button or B, remembered)
+  let blood = true, splats = [];
+  try { blood = localStorage.getItem('rtb_blood') !== '0'; } catch (e) {}
+  function setBlood(on) {
+    blood = on; if (!on) { splats = []; particles = particles.filter((p) => !p.blood); }
+    try { localStorage.setItem('rtb_blood', on ? '1' : '0'); } catch (e) {}
+    $('bloodBtn').textContent = '🩸 Blood: ' + (on ? 'ON' : 'OFF');
+  }
+  setBlood(blood);
+  $('bloodBtn').onclick = () => setBlood(!blood);
+
   function resetFx() {
+    splats = [];
     particles = []; texts = []; bubble = null; newBestThisRun = false; paused = false; slowT = 0; releasePointers(); prevBestFlag = false;
     tape.length = 0; tapeHead = 0; fc = null; zoom = 1; scale = baseScale; slowmo = 1;
   }
@@ -967,7 +982,7 @@ if (typeof document !== 'undefined') (function boot() {
     cam.y = g.body.pts[HEAD].y - 0.6;
   }
   function toMenu() {
-    mode = 'menu'; gh = null; run = null; fc = null; zoom = 1; scale = baseScale; slowmo = 1;
+    mode = 'menu'; gh = null; run = null; fc = null; splats = []; zoom = 1; scale = baseScale; slowmo = 1;
     g = newGame((Math.random() * 1e9) | 0, 'menu');
     refreshMenu();
     $('over').classList.add('hidden'); $('menu').classList.remove('hidden');
@@ -1122,6 +1137,20 @@ if (typeof document !== 'undefined') (function boot() {
       particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v + 0.5, life: 0.6 + Math.random() * 0.4, max: 1, color: color || '#fff', size: (size || 0.04) * (0.6 + Math.random() * 0.8), g: -2 });
     }
   }
+  // cartoon blood: a spray of droplets that splat where they land, plus a pool under the body
+  function bleed(x, speed) {
+    const k = clamp((speed - 2.5) / 6, 0, 1);
+    if (k <= 0) return;
+    const n = Math.round(14 + 50 * k);
+    for (let i = 0; i < n; i++) {
+      const a = PI * (0.12 + Math.random() * 0.76), v = (1.2 + Math.random() * 3.5) * (0.5 + k);
+      particles.push({ x: x + (Math.random() - 0.5) * 0.3, y: 0.08, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 3, max: 3,
+        color: Math.random() < 0.3 ? '#8b0a14' : '#d0101e', size: 0.025 + Math.random() * 0.04 * (0.5 + k), g: 9, drop: true, blood: true });
+    }
+    const P = g.body.pts;
+    let cx = 0; for (const p of P) cx += p.x * p.m; cx /= TOTAL_M;
+    splats.push({ x: cx, r: 0, to: 0.35 + 0.55 * k, grow: 0.6 + 0.6 * k, pool: true });
+  }
   function say(t, dur) { bubble = { t, life: dur || 0.9 }; }
 
   function handleEvents() {
@@ -1162,6 +1191,7 @@ if (typeof document !== 'undefined') (function boot() {
         SFX.fall(); buzz(120); say(pick(['AAAAAAAH!', 'NOOOOO!', 'WAAAAH!', 'MOMMY!']), 1.6);
         break;
       case 'impact':
+        if (blood) bleed(e.x, e.speed);
         SFX.impact(); buzz([60, 40, 90]); cam.shake = 0.25; puff(e.x, 0.05, 22, '#ffe7a8', 3, 0.06);
         for (let i = 0; i < 5; i++) particles.push({ x: e.x, y: 0.4, vx: (Math.random() - 0.5) * 3, vy: 2 + Math.random() * 2, life: 1.2, max: 1.2, color: '#ffd23f', size: 0.07, g: 6, star: true });
         break;
@@ -1258,7 +1288,7 @@ if (typeof document !== 'undefined') (function boot() {
       live: { stam: g.stam, grip: g.hands.map((h) => h.grip), key: g.hands.map((h) => h.key), end: frames[frames.length - 1] },
     };
     mode = 'fallcam'; slowmo = 0.6; releasePointers();
-    particles = []; texts = []; bubble = null; slowT = 0;
+    particles = []; texts = []; bubble = null; slowT = 0; splats = [];
     applyFrame(frames[0]);
     const P = g.body.pts; let cx = 0, cy = 0; for (const p of P) { cx += p.x * p.m; cy += p.y * p.m; }
     cam.x = cx / TOTAL_M; cam.y = cy / TOTAL_M; cam.shake = 0;
@@ -1389,7 +1419,11 @@ if (typeof document !== 'undefined') (function boot() {
   }
 
   function updateFx(dt) {
-    for (const p of particles) { p.vy -= p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.98; p.life -= dt; if (p.rot != null) p.rot += dt * 8; }
+    for (const p of particles) {
+      p.vy -= p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.98; p.life -= dt; if (p.rot != null) p.rot += dt * 8;
+      if (p.blood && p.y <= 0.02 && p.vy < 0) { p.life = 0; if (splats.length < 400) splats.push({ x: p.x, r: p.size * (1.6 + Math.random()), to: 0, grow: 0 }); }
+    }
+    for (const sp of splats) if (sp.r < sp.to) sp.r = Math.min(sp.to, sp.r + dt * sp.to / sp.grow);
     particles = particles.filter((p) => p.life > 0);
     for (const t of texts) { t.life -= dt; t.y += dt * 0.5; }
     texts = texts.filter((t) => t.life > 0);
@@ -1515,6 +1549,15 @@ if (typeof document !== 'undefined') (function boot() {
       ctx.fillStyle = '#5a6475'; ctx.fillRect(-20, -5, 40, 5);
       ctx.fillStyle = '#2f7bff'; ctx.fillRect(-2.2, -0.12, 4.4, 0.14);
       ctx.fillStyle = '#1f5bd0'; ctx.fillRect(-2.2, -0.12, 4.4, 0.03);
+    }
+    // blood on the mat
+    if (viewBot < 0.5) {
+      for (const sp of splats) {
+        if (sp.r <= 0) continue;
+        ctx.fillStyle = sp.pool ? '#9e0b17' : '#b50f1c';
+        ctx.beginPath(); ctx.ellipse(sp.x, 0.02, sp.r, sp.r * 0.16 + 0.01, 0, 0, Math.PI * 2); ctx.fill();
+        if (sp.pool) { ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.ellipse(sp.x - sp.r * 0.3, 0.03, sp.r * 0.3, 0.012, 0, 0, Math.PI * 2); ctx.fill(); }
+      }
     }
     // bars
     for (const b of g.bars) {
