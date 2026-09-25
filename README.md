@@ -13,9 +13,10 @@ Open `index.html` in any modern desktop browser. That's it: one self-contained f
 | **S** | Left arm: pull while gripping, reach up while free |
 | **K** | Right arm: pull while gripping, reach up while free |
 | **S + K** | Full pull-up: stronger pull, drains stamina fast |
-| Enter / Space | Start / retry |
+| Enter / Space | Start / retry / skip replay |
 | Esc / P | Pause |
 | M | Mute |
+| B | Blood on / off (also a button on the main menu) |
 
 **Touch (phones and tablets):** hold the **left half** of the screen for S and the **right half** for K. Both thumbs together give the full pull-up. Tap ❚❚ to pause, then tap anywhere to resume. Works in portrait and landscape, with haptic buzzes on slips and falls where the device supports it.
 
@@ -47,4 +48,6 @@ The physics is fully deterministic. It uses only arithmetic that gives the same 
 - **Stamina.** Pulling drains it (two-arm pulls drain it about 2.5× as fast as one). Hanging recovers it for a while, then starts to tire you. Low stamina weakens pulls and grip, lowers the fastest catch you can make, removes core stabilisation (more sway) and adds tremor. At zero stamina your grip gives out.
 - **Procedural ladder.** Bars get further apart, shorter and more offset with height, while staying within reach.
 - **Springy bars, particles, screen shake, WebAudio sound effects, and a ragdoll that tumbles off the bars when you fall.**
+- **Blood (optional).** Hitting the floor sprays cartoon blood that splats on the mat and pools under the body, more for harder landings. Turn it off with **B** or the 🩸 button on the main menu; the choice is remembered.
+- **Action replay.** After a fall, the last 3 seconds play back in slow motion (slowest at the slip and the landing) with a zoomed camera, deeper slowed-down sound effects and a sports-commentator line, before the game-over card. Press Enter / Space or tap to skip.
 - The best height is saved in `localStorage`.

@@ -71,6 +71,7 @@
   .quip { font-size: 21px; font-style: italic; font-weight: bold; margin: 14px 0 20px; min-height: 1.4em; }
   .cause { font-size: 14px; opacity: .7; margin-top: -10px; margin-bottom: 14px; }
   button.daily { background: #2f7bff; font-size: 20px; padding: 10px 24px; }
+  button.toggle { font-size: 14px; padding: 6px 14px; margin-top: 10px; box-shadow: 0 4px 0 var(--ink); }
   .dailyinfo { font-size: 13px; font-weight: bold; opacity: .75; min-height: 1.2em; margin-top: 2px; }
   .challenge { background: #ffd23f; border: 3px solid var(--ink); border-radius: 14px; padding: 10px 12px 12px; margin: -6px 0 16px; transform: rotate(1deg); }
   #menu.has-challenge .tips, #menu.has-challenge .sub { display: none; }
@@ -130,7 +131,8 @@
     <button id="startBtn">Start</button>
     <button id="dailyBtn" class="daily">Daily Ladder</button>
     <div id="dailyInfo" class="dailyinfo"></div>
-    <div class="hint kb-only">Enter / Space to start &middot; D for the daily &middot; M to mute &middot; Esc to pause &middot; touch works too</div>
+    <button id="bloodBtn" class="secondary toggle"></button>
+    <div class="hint kb-only">Enter / Space to start &middot; D for the daily &middot; M to mute &middot; B for blood &middot; Esc to pause &middot; touch works too</div>
     <div class="hint touch-only">Tip: play in landscape or portrait &middot; ❚❚ button to pause</div>
   </div>
 </div>
@@ -758,14 +760,15 @@ if (typeof document !== 'undefined') (function boot() {
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const $ = (id) => document.getElementById(id);
-  let W = 0, Hh = 0, dpr = 1, scale = 100, safe = { t: 0, r: 0, b: 0, l: 0 };
+  let W = 0, Hh = 0, dpr = 1, scale = 100, baseScale = 100, zoom = 1, safe = { t: 0, r: 0, b: 0, l: 0 };
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth; Hh = window.innerHeight;
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(Hh * dpr);
-    scale = Hh / 7.2;
-    if (W / scale < 4.4) scale = W / 4.4;
+    baseScale = Hh / 7.2;
+    if (W / baseScale < 4.4) baseScale = W / 4.4;
+    scale = baseScale * zoom;
     const cs = getComputedStyle(document.getElementById('safe'));
     safe = { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
   }
@@ -777,7 +780,7 @@ if (typeof document !== 'undefined') (function boot() {
   function saveBest() { try { localStorage.setItem('rtb_best', String(best)); } catch (e) {} }
 
   // ---------- audio ----------
-  let ac = null, master = null, muted = false;
+  let ac = null, master = null, muted = false, slowmo = 1; // slowmo < 1 drops pitch and stretches sounds for the fall replay
   function initAudio() {
     if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
     try {
@@ -787,7 +790,8 @@ if (typeof document !== 'undefined') (function boot() {
   }
   function tone(freq, dur, type, vol, slideTo, delay) {
     if (!ac || muted) return;
-    const t0 = ac.currentTime + (delay || 0);
+    freq *= slowmo; if (slideTo) slideTo *= slowmo; dur /= slowmo; delay = (delay || 0) / slowmo;
+    const t0 = ac.currentTime + delay;
     const o = ac.createOscillator(), gn = ac.createGain();
     o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t0);
     if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
@@ -804,8 +808,9 @@ if (typeof document !== 'undefined') (function boot() {
       const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     }
     const t0 = ac.currentTime;
-    const src = ac.createBufferSource(); src.buffer = noiseBuf;
-    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq || 1200; f.Q.value = q || 1;
+    dur /= slowmo;
+    const src = ac.createBufferSource(); src.buffer = noiseBuf; src.playbackRate.value = slowmo;
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = (freq || 1200) * slowmo; f.Q.value = q || 1;
     const gn = ac.createGain();
     gn.gain.setValueAtTime(vol || 0.3, t0); gn.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     src.connect(f); f.connect(gn); gn.connect(master); src.start(t0); src.stop(t0 + dur + 0.05);
@@ -823,6 +828,7 @@ if (typeof document !== 'undefined') (function boot() {
     impact() { noise(0.35, 0.6, 180, 0.8); tone(80, 0.3, 'sine', 0.4, 40); },
     clank() { noise(0.05, 0.2, 2200, 4); tone(520 + Math.random() * 200, 0.15, 'triangle', 0.1); },
     milestone() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'square', 0.08, null, i * 0.08)); },
+    rewind() { noise(0.35, 0.12, 1800, 0.8); tone(220, 0.3, 'sawtooth', 0.06, 1400); },
   };
 
   // ---------- input ----------
@@ -840,10 +846,12 @@ if (typeof document !== 'undefined') (function boot() {
     if (e.repeat) return;
     const k = e.key;
     if (k === 'm' || k === 'M') { muted = !muted; flash(muted ? 'MUTED' : 'SOUND ON'); return; }
+    if (k === 'b' || k === 'B') { setBlood(!blood); flash(blood ? 'BLOOD ON' : 'BLOOD OFF'); return; }
     if (mode === 'menu' && (k === 'Enter' || k === ' ')) { e.preventDefault(); if (challenge) raceReplay(challenge.rec, 'RIVAL'); else startEndless(); }
     else if (mode === 'menu' && (k === 'd' || k === 'D')) startDaily();
     else if (mode === 'over' && (k === 'Enter' || k === ' ' || k === 'r' || k === 'R')) { e.preventDefault(); if (overPrimary) overPrimary(); }
     else if (mode === 'replay' && (k === 'Enter' || k === ' ' || k === 'Escape')) { e.preventDefault(); skipReplay(); }
+    else if (mode === 'fallcam' && (k === 'Enter' || k === ' ' || k === 'r' || k === 'R' || k === 'Escape')) { e.preventDefault(); endFallCam(); }
     else if (mode === 'play' && (k === 'Escape' || k === 'p' || k === 'P')) paused = !paused;
     else if (mode === 'play' && paused && (k === 'Enter' || k === ' ')) paused = false;
   });
@@ -864,6 +872,7 @@ if (typeof document !== 'undefined') (function boot() {
     initAudio();
     if (e.pointerType === 'touch') setTouchMode(true);
     if (mode === 'replay') { skipReplay(); return; }
+    if (mode === 'fallcam') { if (fc.real > 0.4) endFallCam(); return; } // grace period so a panicked grab doesn't skip it
     if (mode !== 'play') return;
     if (paused) { paused = false; return; } // tap anywhere to resume
     if (isTouch && inRect(e.clientX, e.clientY, pauseBtn())) { paused = true; releasePointers(); return; }
@@ -883,14 +892,14 @@ if (typeof document !== 'undefined') (function boot() {
   function touchHeld(side) { for (const v of pointers.values()) if (v === side) return true; return false; }
   const inputS = () => keys.S || touchHeld('S');
   const inputK = () => keys.K || touchHeld('K');
-  function buzz(ms) { try { if (isTouch && navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+  function buzz(ms) { if (mode === 'fallcam') return; try { if (isTouch && navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
 
   function suspend() { keys.S = keys.K = false; releasePointers(); if (mode === 'play') paused = true; }
   window.addEventListener('blur', suspend);
   document.addEventListener('visibilitychange', () => { if (document.hidden) suspend(); });
 
   // ---------- game state ----------
-  // mode: 'menu' | 'play' | 'replay' (watching a recorded run) | 'over' (result card)
+  // mode: 'menu' | 'play' | 'fallcam' (slow-mo replay of a fall) | 'replay' (watching a recorded run) | 'over' (result card)
   let mode = 'menu', paused = false;
   let g = newGame((Math.random() * 1e9) | 0, 'menu');
   let cam = { x: 0, y: g.body.pts[HEAD].y - 0.6, shake: 0 };
@@ -919,7 +928,22 @@ if (typeof document !== 'undefined') (function boot() {
   let daily = loadDaily();
   function saveDaily() { try { localStorage.setItem('rtb_daily', JSON.stringify(daily)); } catch (e) {} }
 
-  function resetFx() { particles = []; texts = []; bubble = null; newBestThisRun = false; paused = false; slowT = 0; releasePointers(); prevBestFlag = false; }
+  // blood on floor impacts (toggle: menu button or B, remembered)
+  let blood = true, splats = [];
+  try { blood = localStorage.getItem('rtb_blood') !== '0'; } catch (e) {}
+  function setBlood(on) {
+    blood = on; if (!on) { splats = []; particles = particles.filter((p) => !p.blood); }
+    try { localStorage.setItem('rtb_blood', on ? '1' : '0'); } catch (e) {}
+    $('bloodBtn').textContent = '🩸 Blood: ' + (on ? 'ON' : 'OFF');
+  }
+  setBlood(blood);
+  $('bloodBtn').onclick = () => setBlood(!blood);
+
+  function resetFx() {
+    splats = [];
+    particles = []; texts = []; bubble = null; newBestThisRun = false; paused = false; slowT = 0; releasePointers(); prevBestFlag = false;
+    tape.length = 0; tapeHead = 0; fc = null; zoom = 1; scale = baseScale; slowmo = 1;
+  }
   function hideOverlays() { $('menu').classList.add('hidden'); $('over').classList.add('hidden'); }
 
   function makeGhost(r, name) {
@@ -958,7 +982,7 @@ if (typeof document !== 'undefined') (function boot() {
     cam.y = g.body.pts[HEAD].y - 0.6;
   }
   function toMenu() {
-    mode = 'menu'; gh = null; run = null;
+    mode = 'menu'; gh = null; run = null; fc = null; splats = []; zoom = 1; scale = baseScale; slowmo = 1;
     g = newGame((Math.random() * 1e9) | 0, 'menu');
     refreshMenu();
     $('over').classList.add('hidden'); $('menu').classList.remove('hidden');
@@ -1113,61 +1137,76 @@ if (typeof document !== 'undefined') (function boot() {
       particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v + 0.5, life: 0.6 + Math.random() * 0.4, max: 1, color: color || '#fff', size: (size || 0.04) * (0.6 + Math.random() * 0.8), g: -2 });
     }
   }
+  // cartoon blood: a spray of droplets that splat where they land, plus a pool under the body
+  function bleed(x, speed) {
+    const k = clamp((speed - 2.5) / 6, 0, 1);
+    if (k <= 0) return;
+    const n = Math.round(14 + 50 * k);
+    for (let i = 0; i < n; i++) {
+      const a = PI * (0.12 + Math.random() * 0.76), v = (1.2 + Math.random() * 3.5) * (0.5 + k);
+      particles.push({ x: x + (Math.random() - 0.5) * 0.3, y: 0.08, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 3, max: 3,
+        color: Math.random() < 0.3 ? '#8b0a14' : '#d0101e', size: 0.025 + Math.random() * 0.04 * (0.5 + k), g: 9, drop: true, blood: true });
+    }
+    const P = g.body.pts;
+    let cx = 0; for (const p of P) cx += p.x * p.m; cx /= TOTAL_M;
+    splats.push({ x: cx, r: 0, to: 0.35 + 0.55 * k, grow: 0.6 + 0.6 * k, pool: true });
+  }
   function say(t, dur) { bubble = { t, life: dur || 0.9 }; }
 
   function handleEvents() {
-    for (const e of g.events) {
-      if (mode === 'menu') continue;
-      switch (e.type) {
-        case 'catch': {
-          SFX.grab(e.speed); puff(e.x, e.y, 8, '#ffffff', 1.2, 0.035);
-          // clutch catches: grabbing while dropping fast, a long one-handed flight, or on fumes
-          const saved = e.vy < -2.6 && !e.newBar;
-          const clutch = e.vy < -2.6 || (e.alone && e.airT > 0.5) || (e.newBar && e.stam < 15);
-          if (clutch && slowT <= 0) {
-            slowT = 0.7; buzz(25);
-            addText(e.x, e.y + 0.35, saved ? 'SAVED!' : 'CLUTCH!', '#7dfcff', 34);
-          } else if (e.newBar) {
-            addText(e.x, e.y + 0.25, pick(['CATCH!', 'NICE!', 'GOT IT!', 'BAR!', 'UP!']), '#ffe14d', 26);
-          }
-          if (e.newBar) { SFX.catchUp(); cam.shake = Math.max(cam.shake, 0.06); }
-          break;
-        }
-        case 'throw':
-          SFX.whoosh();
-          if (e.hop) { addText(g.body.pts[HEAD].x, g.body.pts[HEAD].y + 0.4, 'HOP!', '#7dfcff', 30); puff(e.x, e.y, 14, '#ffffff', 2.2, 0.05); cam.shake = Math.max(cam.shake, 0.08); }
-          break;
-        case 'pull':
-          if (e.both) { SFX.heavy(); if (Math.random() < 0.5) say(pick(['HNNNG!', 'HRRRK!', 'NNNGH!', 'HUP!', 'RAAH!'])); }
-          else SFX.pull();
-          break;
-        case 'slip':
-          SFX.slip(); buzz(40); addText(e.x, e.y + 0.1, e.exhausted ? 'NO GRIP!' : 'SLIP!', '#ff6b6b', 26); say(pick(['WHOA!', 'NOPE!', 'UH OH', 'AAH!']));
-          break;
-        case 'fumble':
-          SFX.fumble(); addText(e.x, e.y + 0.1, 'FUMBLE!', '#ff9f43', 22); puff(e.x, e.y, 5, '#ffd9a0', 1.5, 0.03);
-          break;
-        case 'die':
-          SFX.fall(); buzz(120); say(pick(['AAAAAAAH!', 'NOOOOO!', 'WAAAAH!', 'MOMMY!']), 1.6);
-          break;
-        case 'impact':
-          SFX.impact(); buzz([60, 40, 90]); cam.shake = 0.25; puff(e.x, 0.05, 22, '#ffe7a8', 3, 0.06);
-          for (let i = 0; i < 5; i++) particles.push({ x: e.x, y: 0.4, vx: (Math.random() - 0.5) * 3, vy: 2 + Math.random() * 2, life: 1.2, max: 1.2, color: '#ffd23f', size: 0.07, g: 6, star: true });
-          break;
-        case 'clank':
-          SFX.clank(); cam.shake = Math.max(cam.shake, 0.08); puff(e.x, e.y, 4, '#fff', 1.5, 0.03);
-          break;
-        case 'milestone':
-          SFX.milestone(); cam.shake = Math.max(cam.shake, 0.1);
-          addText(g.body.pts[HEAD].x, g.body.pts[HEAD].y + 0.6, e.value + 'm!', '#ffe14d', 42);
-          for (let i = 0; i < 30; i++) {
-            const hp = g.body.pts[HEAD];
-            particles.push({ x: hp.x, y: hp.y + 0.3, vx: (Math.random() - 0.5) * 5, vy: Math.random() * 4 + 1, life: 1.4, max: 1.4, color: ['#ff5a3c', '#ffd23f', '#2f7bff', '#3ce07a', '#ff7ad9'][i % 5], size: 0.05, g: 7, confetti: true, rot: Math.random() * 6 });
-          }
-          break;
-      }
-    }
+    if (mode !== 'menu') for (const e of g.events) fx(e);
     g.events.length = 0;
+  }
+  function fx(e) {
+    switch (e.type) {
+      case 'catch': {
+        SFX.grab(e.speed); puff(e.x, e.y, 8, '#ffffff', 1.2, 0.035);
+        // clutch catches: grabbing while dropping fast, a long one-handed flight, or on fumes
+        const saved = e.vy < -2.6 && !e.newBar;
+        const clutch = e.vy < -2.6 || (e.alone && e.airT > 0.5) || (e.newBar && e.stam < 15);
+        if (clutch && slowT <= 0 && mode !== 'fallcam') {
+          slowT = 0.7; buzz(25);
+          addText(e.x, e.y + 0.35, saved ? 'SAVED!' : 'CLUTCH!', '#7dfcff', 34);
+        } else if (e.newBar) {
+          addText(e.x, e.y + 0.25, pick(['CATCH!', 'NICE!', 'GOT IT!', 'BAR!', 'UP!']), '#ffe14d', 26);
+        }
+        if (e.newBar) { SFX.catchUp(); cam.shake = Math.max(cam.shake, 0.06); }
+        break;
+      }
+      case 'throw':
+        SFX.whoosh();
+        if (e.hop) { addText(g.body.pts[HEAD].x, g.body.pts[HEAD].y + 0.4, 'HOP!', '#7dfcff', 30); puff(e.x, e.y, 14, '#ffffff', 2.2, 0.05); cam.shake = Math.max(cam.shake, 0.08); }
+        break;
+      case 'pull':
+        if (e.both) { SFX.heavy(); if (Math.random() < 0.5) say(pick(['HNNNG!', 'HRRRK!', 'NNNGH!', 'HUP!', 'RAAH!'])); }
+        else SFX.pull();
+        break;
+      case 'slip':
+        SFX.slip(); buzz(40); addText(e.x, e.y + 0.1, e.exhausted ? 'NO GRIP!' : 'SLIP!', '#ff6b6b', 26); say(pick(['WHOA!', 'NOPE!', 'UH OH', 'AAH!']));
+        break;
+      case 'fumble':
+        SFX.fumble(); addText(e.x, e.y + 0.1, 'FUMBLE!', '#ff9f43', 22); puff(e.x, e.y, 5, '#ffd9a0', 1.5, 0.03);
+        break;
+      case 'die':
+        SFX.fall(); buzz(120); say(pick(['AAAAAAAH!', 'NOOOOO!', 'WAAAAH!', 'MOMMY!']), 1.6);
+        break;
+      case 'impact':
+        if (blood) bleed(e.x, e.speed);
+        SFX.impact(); buzz([60, 40, 90]); cam.shake = 0.25; puff(e.x, 0.05, 22, '#ffe7a8', 3, 0.06);
+        for (let i = 0; i < 5; i++) particles.push({ x: e.x, y: 0.4, vx: (Math.random() - 0.5) * 3, vy: 2 + Math.random() * 2, life: 1.2, max: 1.2, color: '#ffd23f', size: 0.07, g: 6, star: true });
+        break;
+      case 'clank':
+        SFX.clank(); cam.shake = Math.max(cam.shake, 0.08); puff(e.x, e.y, 4, '#fff', 1.5, 0.03);
+        break;
+      case 'milestone':
+        SFX.milestone(); cam.shake = Math.max(cam.shake, 0.1);
+        addText(g.body.pts[HEAD].x, g.body.pts[HEAD].y + 0.6, e.value + 'm!', '#ffe14d', 42);
+        for (let i = 0; i < 30; i++) {
+          const hp = g.body.pts[HEAD];
+          particles.push({ x: hp.x, y: hp.y + 0.3, vx: (Math.random() - 0.5) * 5, vy: Math.random() * 4 + 1, life: 1.4, max: 1.4, color: ['#ff5a3c', '#ffd23f', '#2f7bff', '#3ce07a', '#ff7ad9'][i % 5], size: 0.05, g: 7, confetti: true, rot: Math.random() * 6 });
+        }
+        break;
+    }
   }
 
   // one fixed simulation step for whatever is on screen
@@ -1184,10 +1223,155 @@ if (typeof document !== 'undefined') (function boot() {
       }
     }
     stepSim(g, CFG.DT);
+    if (mode === 'play') record();
     handleEvents();
     // the ghost runs in lockstep on its own copy of the same ladder
     if (gh && (mode === 'play' || mode === 'over') && !(gh.g.state === 'dying' && gh.g.deathT > 3)) {
       applyPlayback(gh.g, gh.pb); stepSim(gh.g, CFG.DT); gh.g.events.length = 0;
+    }
+  }
+
+  // ---------- fall replay (fallcam) ----------
+  // Every sim step of a run is recorded into a ring buffer; after a fall the last few seconds
+  // are played back in slow motion with a zoomed camera and a commentator line.
+  const TAPE_LEN = Math.ceil(3 / CFG.DT);
+  const tape = []; let tapeHead = 0;
+  function record() {
+    const P = g.body.pts, pos = new Float32Array(P.length * 4);
+    for (let i = 0; i < P.length; i++) { const p = P[i]; pos[i * 4] = p.x; pos[i * 4 + 1] = p.y; pos[i * 4 + 2] = p.px; pos[i * 4 + 3] = p.py; }
+    const hy = P[HEAD].y, bars = [];
+    for (const b of g.bars) if (b.y > hy - 8 && b.y < hy + 8) bars.push(b, b.o, b.hit);
+    const f = {
+      pos, bars, stam: g.stam,
+      grip: [!!g.hands[0].grip, !!g.hands[1].grip], key: [g.hands[0].key, g.hands[1].key],
+      ev: g.events.length ? g.events.map((e) => Object.assign({}, e)) : null,
+    };
+    if (tape.length < TAPE_LEN) tape.push(f); else { tape[tapeHead] = f; tapeHead = (tapeHead + 1) % TAPE_LEN; }
+  }
+  function applyFrame(f) {
+    const P = g.body.pts;
+    for (let i = 0; i < P.length; i++) { const p = P[i]; p.x = f.pos[i * 4]; p.y = f.pos[i * 4 + 1]; p.px = f.pos[i * 4 + 2]; p.py = f.pos[i * 4 + 3]; }
+    for (let i = 0; i < f.bars.length; i += 3) { f.bars[i].o = f.bars[i + 1]; f.bars[i].hit = f.bars[i + 2]; }
+    g.stam = f.stam;
+    for (let s = 0; s < 2; s++) { g.hands[s].grip = f.grip[s] ? FALLCAM_GRIP : null; g.hands[s].key = f.key[s]; }
+  }
+  const FALLCAM_GRIP = { replay: true }; // render-only stand-in; the sim never steps during a replay
+
+  const CALL = {
+    fall: [
+      "And he's… committing to the floor.", "Oh, and that is NOT in the playbook.", "He's gone for the bar… and the bar has said no.",
+      'A textbook example of what not to do there, Jim.', 'You love to see ambition. You hate to see this.', 'The judges are… looking away.',
+      'Gravity, once again, the MVP tonight.', "Let's see that again. Actually, let's not.", 'Reaching for the stars. Grabbing the air.',
+      "That's a bold choice of landing zone.", 'And the hands have simply clocked off.',
+    ],
+    floor: ["He's barely left the ground and he's already back on it.", 'Bold strategy: start at the bottom, stay at the bottom.', 'And that, folks, is a sit-down.'],
+    exhausted: ['The tank is EMPTY, folks.', 'Those arms have nothing left to give. Nothing.', 'You can see the exact moment the forearms resign.', 'And the arms have left the building.'],
+    high: ["From that height, that's going to sting in the morning.", "A long way down, and he's taken the scenic route.", 'All that climbing… undone in a single, graceful plummet.'],
+  };
+
+  let fc = null;
+  const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  // playback speed (sim seconds per real second): slow motion around the slip and the landing
+  const dip = (t, a, b) => (a == null ? 0 : smooth(a - 0.15, a, t) * (1 - smooth(b, b + 0.2, t)));
+  const fallRate = (r, t) => lerp(0.8, 0.3, Math.max(dip(t, r.tSlip, r.tSlip + 0.45), dip(t, r.tLand, r.tLand + 0.7)));
+
+  function startFallCam() {
+    const frames = tape.slice(tapeHead).concat(tape.slice(0, tapeHead));
+    if (frames.length < 0.5 / CFG.DT) { showOver(); return; }
+    const at = (i) => (i < 0 ? null : i * CFG.DT);
+    let lastGrip = -1; frames.forEach((f, i) => { if (f.grip[0] || f.grip[1]) lastGrip = i; });
+    const tSlip = lastGrip >= 0 ? at(lastGrip) : at(frames.findIndex((f) => f.ev && f.ev.some((e) => e.type === 'die')));
+    const tLand = at(frames.findIndex((f) => f.ev && f.ev.some((e) => e.type === 'impact')));
+    const c = g.deathCause === 'floor' && g.maxHeight < 1.5 ? 'floor' : g.deathCause === 'exhausted' ? 'exhausted' : g.maxHeight > 10 && Math.random() < 0.5 ? 'high' : 'fall';
+    fc = {
+      frames, tSlip: tSlip || 0, tLand, t: 0, real: 0, rate: 0.75, hold: 0, last: -1, line: pick(CALL[c]), lineT: -1,
+      live: { stam: g.stam, grip: g.hands.map((h) => h.grip), key: g.hands.map((h) => h.key), end: frames[frames.length - 1] },
+    };
+    mode = 'fallcam'; slowmo = 0.6; releasePointers();
+    particles = []; texts = []; bubble = null; slowT = 0; splats = [];
+    applyFrame(frames[0]);
+    const P = g.body.pts; let cx = 0, cy = 0; for (const p of P) { cx += p.x * p.m; cy += p.y * p.m; }
+    cam.x = cx / TOTAL_M; cam.y = cy / TOTAL_M; cam.shake = 0;
+    SFX.rewind();
+  }
+  function stepFallCam(dt) {
+    const r = fc, n = r.frames.length;
+    r.real += dt;
+    const end = (n - 1) * CFG.DT;
+    if (r.t < end) {
+      r.t = Math.min(end, r.t + dt * fallRate(r, r.t));
+      const idx = Math.min(n - 1, Math.floor(r.t / CFG.DT));
+      for (let i = r.last + 1; i <= idx; i++) if (r.frames[i].ev) for (const e of r.frames[i].ev) fx(e);
+      r.last = idx;
+      applyFrame(r.frames[idx]);
+    } else r.hold += dt;
+    if (r.lineT < 0 && r.t >= r.tSlip + 0.25) r.lineT = 0;
+    if (r.lineT >= 0) r.lineT += dt;
+    if (r.hold > 1.6) endFallCam();
+    return fallRate(r, r.t);
+  }
+  function endFallCam() {
+    if (!fc) return;
+    const L = fc.live;
+    applyFrame(L.end);
+    g.stam = L.stam;
+    g.hands.forEach((h, i) => { h.grip = L.grip[i]; h.key = L.key[i]; });
+    fc = null; slowmo = 1; zoom = 1; scale = baseScale;
+    particles = []; texts = []; bubble = null; slowT = 0;
+    showOver();
+  }
+
+  function wrapText(t, maxW) {
+    const words = t.split(' '), lines = []; let cur = '';
+    for (const w of words) {
+      const test = cur ? cur + ' ' + w : w;
+      if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = w; } else cur = test;
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function drawFallCam() {
+    const r = fc;
+    const intro = clamp(r.real / 0.35, 0, 1);
+    const bar = (Hh * 0.08 + 8) * intro;
+    // letterbox
+    ctx.fillStyle = '#0d0c18';
+    ctx.fillRect(0, 0, W, bar + safe.t); ctx.fillRect(0, Hh - bar - safe.b, W, bar + safe.b);
+    // rewind flash
+    if (r.real < 0.25) { ctx.fillStyle = 'rgba(255,255,255,' + (1 - r.real / 0.25) * 0.8 + ')'; ctx.fillRect(0, 0, W, Hh); }
+    ctx.textBaseline = 'middle';
+    const ty = safe.t + bar / 2;
+    // REC dot + label
+    ctx.textAlign = 'left';
+    const pl = 18 + safe.l, pr = 18 + safe.r;
+    if (Math.floor(r.real * 2) % 2 === 0) { ctx.fillStyle = '#ff3c3c'; ctx.beginPath(); ctx.arc(pl + 8, ty, 7, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = '#fff'; ctx.font = '900 20px Impact, Arial Black, sans-serif';
+    ctx.fillText('ACTION REPLAY', pl + 24, ty + 1);
+    ctx.textAlign = 'right'; ctx.font = 'bold 15px Trebuchet MS, sans-serif'; ctx.fillStyle = '#ffd23f';
+    ctx.fillText(r.rate.toFixed(2).replace(/0$/, '') + '×', W - pr, ty + 1);
+    // skip hint
+    ctx.textAlign = 'center'; ctx.font = 'bold 12px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillText(isTouch ? 'Tap to skip' : 'Enter / Space to skip', W / 2, Hh - safe.b - bar / 2);
+    // commentator lower third
+    if (r.lineT >= 0) {
+      const shown = r.line.slice(0, Math.floor(r.lineT * 30));
+      const a = clamp(r.lineT / 0.2, 0, 1);
+      const maxW = Math.min(560, W - 32);
+      ctx.font = 'italic bold 20px Trebuchet MS, sans-serif';
+      const lines = wrapText(r.line, maxW - 28);
+      const lh = 26, bh = 34 + lines.length * lh, bx = W / 2 - maxW / 2, by = Hh - safe.b - bar - bh - 14;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = 'rgba(13,12,24,0.88)'; roundRect(bx, by, maxW, bh, 10); ctx.fill();
+      ctx.fillStyle = '#ff5a3c'; roundRect(bx + 12, by - 11, 150, 22, 6); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.font = '900 12px Trebuchet MS, sans-serif';
+      ctx.fillText('🎙 COMMENTARY', bx + 22, by);
+      ctx.font = 'italic bold 20px Trebuchet MS, sans-serif';
+      let left = shown.length;
+      lines.forEach((ln, i) => {
+        const part = ln.slice(0, Math.max(0, left)); left -= ln.length + 1;
+        ctx.fillText(part, bx + 14, by + 22 + lh / 2 + i * lh);
+      });
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -1199,13 +1383,16 @@ if (typeof document !== 'undefined') (function boot() {
     if (slowT > 0) slowT -= dt;
     const ts = slowT > 0 ? lerp(1, 0.3, Math.min(1, slowT / 0.3)) : 1;
     const sdt = dt * ts;
-    if (!(mode === 'play' && paused)) {
+    if (mode === 'fallcam') {
+      const rate = stepFallCam(dt);
+      if (fc) { fc.rate = rate; updateFx(dt * rate); }
+    } else if (!(mode === 'play' && paused)) {
       acc += sdt;
       let steps = 0;
       while (acc >= CFG.DT && steps < 8) { tick(); acc -= CFG.DT; steps++; }
       if (steps >= 8) acc = 0;
       const ended = g.state === 'dying' && (g.deathT > 1.5 || (g.floorHit && g.deathT > 0.8));
-      if (mode === 'play' && ended) showOver();
+      if (mode === 'play' && ended) startFallCam();
       else if (mode === 'replay' && (ended || g.n > watching.rec.steps + 600)) showReplayEnd();
       if (mode === 'play' && !prevBestFlag && best > 2 && g.maxHeight > best && g.state === 'play') {
         prevBestFlag = true; addText(g.body.pts[HEAD].x, g.body.pts[HEAD].y + 0.8, 'NEW BEST!', '#ff7ad9', 34); SFX.milestone();
@@ -1232,7 +1419,11 @@ if (typeof document !== 'undefined') (function boot() {
   }
 
   function updateFx(dt) {
-    for (const p of particles) { p.vy -= p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.98; p.life -= dt; if (p.rot != null) p.rot += dt * 8; }
+    for (const p of particles) {
+      p.vy -= p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.98; p.life -= dt; if (p.rot != null) p.rot += dt * 8;
+      if (p.blood && p.y <= 0.02 && p.vy < 0) { p.life = 0; if (splats.length < 400) splats.push({ x: p.x, r: p.size * (1.6 + Math.random()), to: 0, grow: 0 }); }
+    }
+    for (const sp of splats) if (sp.r < sp.to) sp.r = Math.min(sp.to, sp.r + dt * sp.to / sp.grow);
     particles = particles.filter((p) => p.life > 0);
     for (const t of texts) { t.life -= dt; t.y += dt * 0.5; }
     texts = texts.filter((t) => t.life > 0);
@@ -1255,6 +1446,19 @@ if (typeof document !== 'undefined') (function boot() {
   function updateCamera(dt) {
     const P = g.body.pts;
     let cx = 0, cy = 0; for (const p of P) { cx += p.x * p.m; cy += p.y * p.m; } cx /= TOTAL_M; cy /= TOTAL_M;
+    if (mode === 'fallcam') {
+      // zoom in on the tumble, pushing in harder towards the landing
+      const r = fc;
+      zoom = lerp(1.3, 1.85, smooth(r.tSlip - 0.3, (r.tLand != null ? r.tLand : r.tSlip + 1) + 0.2, r.t));
+      scale = baseScale * zoom;
+      const k = 1 - Math.exp(-dt * 7);
+      cam.x += (cx - cam.x) * k;
+      // never let the floor sink behind the letterbox and commentary caption
+      const floorY = (Hh / 2 - (Hh * 0.08 + 8 + safe.b + 120)) / scale;
+      cam.y += (Math.max(cy + 0.1, floorY) - cam.y) * k;
+      cam.shake *= Math.exp(-dt * 4);
+      return;
+    }
     const dying = g.state === 'dying';
     // keep the climber centred in the space left between the top and bottom HUD
     const L = hudLayout(), hudShift = mode === 'play' || mode === 'replay' ? (L.bottom - L.top) / 2 / scale : 0;
@@ -1346,6 +1550,15 @@ if (typeof document !== 'undefined') (function boot() {
       ctx.fillStyle = '#2f7bff'; ctx.fillRect(-2.2, -0.12, 4.4, 0.14);
       ctx.fillStyle = '#1f5bd0'; ctx.fillRect(-2.2, -0.12, 4.4, 0.03);
     }
+    // blood on the mat
+    if (viewBot < 0.5) {
+      for (const sp of splats) {
+        if (sp.r <= 0) continue;
+        ctx.fillStyle = sp.pool ? '#9e0b17' : '#b50f1c';
+        ctx.beginPath(); ctx.ellipse(sp.x, 0.02, sp.r, sp.r * 0.16 + 0.01, 0, 0, Math.PI * 2); ctx.fill();
+        if (sp.pool) { ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.ellipse(sp.x - sp.r * 0.3, 0.03, sp.r * 0.3, 0.012, 0, 0, Math.PI * 2); ctx.fill(); }
+      }
+    }
     // bars
     for (const b of g.bars) {
       if (b.y < viewBot || b.y > viewTop) continue;
@@ -1363,7 +1576,7 @@ if (typeof document !== 'undefined') (function boot() {
     const bestLine = mode === 'replay' ? 0 : currentBest();
     if (bestLine > 1) goalLine(h0 + bestLine, '#ff4f9a');
     if (gh && gh.max > 0.5 && Math.abs(gh.max - bestLine) > 0.05) goalLine(h0 + gh.max, '#39a0ff');
-    if (gh) drawGhost(gh.g);
+    if (gh && mode !== 'fallcam') drawGhost(gh.g);
     drawGuy();
 
     // particles
@@ -1389,7 +1602,7 @@ if (typeof document !== 'undefined') (function boot() {
       if (bestLine > 1) { const [X, Y] = toScreen(1.68, h0 + bestLine, sx, sy); ctx.fillStyle = '#c2185b'; ctx.fillText('BEST ' + bestLine.toFixed(1) + 'm', X, Y - 9); }
       if (gh && gh.max > 0.5 && Math.abs(gh.max - bestLine) > 0.05) { const [X, Y] = toScreen(1.68, h0 + gh.max, sx, sy); ctx.fillStyle = '#1565c0'; ctx.fillText(gh.name + ' ' + gh.max.toFixed(1) + 'm', X, Y - 9); }
       ctx.textAlign = 'center';
-      if (gh && !(gh.g.state === 'dying' && gh.g.deathT > 2)) {
+      if (gh && mode !== 'fallcam' && !(gh.g.state === 'dying' && gh.g.deathT > 2)) {
         const hp = gh.g.body.pts[HEAD]; const [X, Y] = toScreen(hp.x, hp.y + 0.3, sx, sy);
         ctx.font = '900 13px Trebuchet MS, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.8)';
         ctx.strokeText('👻 ' + gh.name, X, Y); ctx.fillStyle = '#1565c0'; ctx.fillText('👻 ' + gh.name, X, Y);
@@ -1415,6 +1628,7 @@ if (typeof document !== 'undefined') (function boot() {
       ctx.fillStyle = '#1d1b2f'; ctx.fillText(bubble.t, X, Y + 1);
     }
     if (mode === 'play' || mode === 'over' || mode === 'replay') drawHUD();
+    if (mode === 'fallcam' && fc) drawFallCam();
     if (flashMsg) {
       ctx.globalAlpha = clamp(flashMsg.life, 0, 1); ctx.font = '900 20px Trebuchet MS, sans-serif'; ctx.fillStyle = '#1d1b2f';
       ctx.fillText(flashMsg.t, W / 2, 90); ctx.globalAlpha = 1;
