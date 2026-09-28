@@ -7,5 +7,5 @@ COPY server ./server
 ENV PORT=8787 RTB_DB=/data/rtb.sqlite
 VOLUME /data
 EXPOSE 8787
-USER node
+# Railway-mounted volumes are root-owned; SQLite must be able to write /data.
 CMD ["node", "--no-warnings", "server/server.js"]
