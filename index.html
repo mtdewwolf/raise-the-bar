@@ -1291,7 +1291,11 @@ if (typeof document !== 'undefined') (function boot() {
   async function initOnline() {
     if (!apiBase) return;
     online = 'checking';
-    try { await api('GET', '/api/health'); online = 'online'; }
+    try {
+      const health = await api('GET', '/api/health');
+      if (!health || health.ok !== true) throw new Error('Unexpected leaderboard response');
+      online = 'online';
+    }
     catch (e) { online = apiExplicit ? 'offline' : 'off'; } // a guessed same-origin server that isn't there is just "no server"
     refreshMenu();
     if (!isOnline()) return;

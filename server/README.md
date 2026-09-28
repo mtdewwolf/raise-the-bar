@@ -23,6 +23,12 @@ docker run -p 8787:8787 -v rtb-data:/data rtb-server
 
 This runs on any host that can run Node or Docker and keep a small disk (the SQLite file), for example Fly.io, Railway, Render with a persistent disk, or a VPS. Verification costs about 200 ms of CPU per minute of play, so the default of 2 verification workers wants a host with 2 CPU cores. That rules out edge "worker" platforms that cap CPU at around 10 ms per request.
 
+## Railway deployment
+
+The repository-root `Dockerfile` runs the game and API together. In Railway, set the service's **root directory to `/`** and build with the root Dockerfile (remove any static-site build or start command overrides). Attach a persistent volume at `/data` for `RTB_DB=/data/rtb.sqlite`; without it, profiles and scores disappear on redeploy. Set `RTB_TRUST_PROXY=1` for accurate rate limiting behind Railway's proxy. Keep the existing volume if the service already holds player data; do not replace or detach it during migration.
+
+After deployment, check `https://<your-domain>/api/health` returns JSON with `"ok":true`, then load `/` and open the Leaderboard in the game. A Railway 404 at `/api/health` means the domain is still routed to a static deployment or another service. A 200 HTML response there is also incorrect: the game needs the API process. Android releases need `RTB_API` set to this same URL when built.
+
 ## Point the game at it
 
 - **Game hosted by this server:** nothing to do. The game uses its own origin automatically.
