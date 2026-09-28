@@ -55,6 +55,7 @@ All endpoints return JSON. Authenticated endpoints need `Authorization: Bearer <
 | `GET /api/me` 🔒 | Profile. This is also how "link another device" checks a sync code |
 | `PATCH /api/me` 🔒 `{ name?, look? }` | Rename (2–16 characters) and/or save the Locker look (`{ hat, jersey, band, back, suit }`) |
 | `PUT /api/me/achievements` 🔒 `{ ids }` | Merges achievements and returns the combined list |
+| `PUT /api/me/upgrades` 🔒 `{ upgrades }` | Saves upgrade levels if the Chalk earned by verified runs covers them (409 if not yet) |
 | `POST /api/runs` 🔒 `{ replay }` | Verifies and ranks a run: `{ height, alltime: { rank, total, best, improved }, daily }` |
 | `GET /api/leaderboard?board=daily\|alltime&day=N&limit=50` | Top entries, plus your own row if you're outside them (send the token) |
 | `GET /api/runs/:id` | A run's replay and its player's look, for watching it or racing its ghost |
@@ -62,7 +63,8 @@ All endpoints return JSON. Authenticated endpoints need `Authorization: Bearer <
 ## How ranking works
 
 - **All-time:** every verified run counts. Each player's best height is ranked; if two heights tie, whoever reached it first ranks higher.
-- **Daily:** only runs on that day's real daily seed count, accepted for today or yesterday to allow for time zones.
+- **Daily:** only runs on that day's real daily seed count, accepted for today or yesterday to allow for time zones, and only runs played without upgrades.
+- **Upgrades:** Chalk is earned only by verified runs (`runs.coins`). A run is rejected if the upgrade levels recorded in its replay cost more than the player's verified runs had earned before it.
 - Resubmitting your own run is harmless, because the offline queue retries. A replay that someone else already submitted is rejected.
 
 ## Known limits

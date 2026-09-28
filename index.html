@@ -128,6 +128,19 @@
   .achcard.item { cursor: pointer; }
   .achcard.item.on { background: #fff3c4; box-shadow: 0 0 0 3px var(--accent) inset; }
   .achcard.item.locked { cursor: default; }
+  .coins { font-weight: 900; font-size: 16px; color: #8a6400; min-height: 1.2em; margin-top: 2px; }
+  .wallet { text-align: center; font-size: 26px; font-weight: 900; margin: -4px 0 10px; }
+  .shoplist { display: flex; flex-direction: column; gap: 8px; max-height: 56vh; overflow-y: auto; margin-bottom: 8px; }
+  .uprow { display: flex; align-items: center; gap: 10px; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 10px; background: #fff; }
+  .uprow .ic { font-size: 30px; }
+  .uprow .info { flex: 1; min-width: 0; }
+  .uprow .nm { font-weight: 900; font-size: 16px; }
+  .uprow .ds { font-size: 12px; opacity: .8; }
+  .pips { display: flex; gap: 4px; margin-top: 4px; }
+  .pips i { width: 16px; height: 8px; border-radius: 4px; background: #e3d9c6; border: 2px solid var(--ink); }
+  .pips i.on { background: var(--accent); }
+  .uprow button { font-size: 14px; padding: 7px 10px; margin: 0; white-space: nowrap; box-shadow: 0 3px 0 var(--ink); }
+  .uprow button:disabled { background: #cfc6b4; cursor: default; }
   .preview { display: block; width: 100%; height: 190px; border: 3px solid var(--ink); border-radius: 12px; margin-bottom: 10px; background: #7cc8ff; }
   #lockerTabs { flex-wrap: wrap; }
   .achcard.locked .ic { filter: grayscale(1); }
@@ -183,6 +196,7 @@
       <button id="lbBtn" class="secondary small">🏆 Leaderboards</button>
       <button id="achBtn" class="secondary small">🏅 Achievements <span id="achCount"></span></button>
       <button id="lockerBtn" class="secondary small">👕 Locker</button>
+      <button id="shopBtn" class="secondary small">🛒 Upgrades <span id="coinCount"></span></button>
     </div>
     <div id="profileLine" class="profile"></div>
     <button id="bloodBtn" class="secondary toggle"></button>
@@ -203,6 +217,7 @@
     </div>
     <div class="vs" id="oVs"></div>
     <div class="rank" id="oRank"></div>
+    <div class="coins" id="oCoins"></div>
     <div class="quip" id="oQuip"></div>
     <div class="cause" id="oCause"></div>
     <div id="oMain"></div>
@@ -228,6 +243,16 @@
         <div class="fine">Keep the code private: anyone with it can play as you.</div>
       </div>
     </details>
+  </div>
+</div>
+
+<div id="shop" class="overlay panel hidden">
+  <div class="card wide">
+    <button class="close" data-close aria-label="Close">✕</button>
+    <h2>🛒 Upgrades</h2>
+    <div class="wallet"><span id="shopCoins">0</span> 🪙 Chalk</div>
+    <div id="shopList" class="shoplist"></div>
+    <div class="lbstatus">Earn Chalk on every run: 10 per metre climbed and 2 per bar. The Daily Ladder is always played without upgrades, so it stays a pure skill contest.</div>
   </div>
 </div>
 
@@ -375,13 +400,14 @@ function addBar(g) {
   }
   const prev = g.bars[n - 1];
   const d = clamp((n - 4) / 55, 0, 1); // difficulty ramps over ~55 bars
-  // A clean both-hands hop reaches ~0.66m above the bar and hand-over-hand ~0.8m, so ordinary gaps
-  // stay hoppable; difficulty higher up comes from shorter, offset bars, stamina and zone hazards.
+  // A perfectly timed both-hands hop reaches ~0.84m above the bar (sloppy ones ~0.65m), so ordinary
+  // gaps stay hoppable low down; from the Clouds up they widen, which is where upgrades pay off.
   let gap = 0.55 + 0.07 * d + r() * (0.01 + 0.02 * d);
   if (n > 8 && r() < 0.04 + 0.08 * d) gap += 0.07; // occasional stretch: needs a swing or hand-over-hand
   if (n <= 4) gap = 0.55;
-  // hops go much higher in low gravity, so space spreads the bars out
   const hNew = prev.y + gap - ZONE_H0;
+  gap += 0.08 * smoothstep(40, 52, hNew);
+  // hops go much higher in low gravity, so space spreads the bars out
   gap *= 1 + 0.25 * (1 - gravityScale(hNew)) / 0.58;
   const len = n <= 4 ? 2.5 : clamp(lerp(2.3, 1.0, d) + (r() - 0.5) * 0.5, 0.9, 2.6);
   const pc = (prev.x0 + prev.x1) / 2, plen = prev.x1 - prev.x0;
@@ -401,8 +427,35 @@ function addBar(g) {
 }
 function genBars(g, upto) { while (g.bars[g.bars.length - 1].y < upto) addBar(g); }
 
+// ---------------- Upgrades ----------------
+// Bought with coins earned from runs. Levels are part of every replay, so the server re-simulates
+// runs with the same upgrades and checks the player really earned enough coins to own them.
+const UPGRADES = [
+  { id: 'pull', icon: '💪', name: 'Explosive Pull', desc: '+8% pulling strength per level' },
+  { id: 'spring', icon: '🦘', name: 'Spring Hop', desc: 'Extra upward kick when you let go with both hands' },
+  { id: 'stam', icon: '🫁', name: 'Endurance', desc: '-8% stamina drain per level' },
+  { id: 'grip', icon: '🧤', name: 'Chalk Grip', desc: '+10% grip strength and safer fast catches' },
+  { id: 'rec', icon: '🔋', name: 'Recovery', desc: '+15% stamina recovery while hanging' },
+];
+const UPGRADE_MAX = 5;
+const UPGRADE_COST = [80, 150, 280, 500, 900]; // cost of level 1..5 (integers, identical everywhere)
+function cleanUpgrades(u) {
+  const out = {};
+  for (const { id } of UPGRADES) { const v = (u && u[id]) | 0; out[id] = v < 0 ? 0 : v > UPGRADE_MAX ? UPGRADE_MAX : v; }
+  return out;
+}
+// total coins needed to own a set of levels
+function upgradesCost(u) {
+  let c = 0; const lv = cleanUpgrades(u);
+  for (const { id } of UPGRADES) for (let i = 0; i < lv[id]; i++) c += UPGRADE_COST[i];
+  return c;
+}
+const noUpgrades = (u) => UPGRADES.every(({ id }) => !(u && u[id]));
+// coins a finished run pays out
+function runCoins(g) { return Math.floor(g.maxHeight * 10 + g.maxBar * 2); }
+
 // ---------------- Game ----------------
-function newGame(seed, state) {
+function newGame(seed, state, upgrades) {
   const g = {
     seed, rng: mulberry32(seed), trng: mulberry32(seed ^ 0x9e3779b9), bars: [], state: state || 'play', t: 0,
     body: makeBody(CFG.START_BAR_Y), hands: [mkHand(0), mkHand(1)],
@@ -414,6 +467,7 @@ function newGame(seed, state) {
     nextMilestone: 5, pullTime: 0, n: 0, zone: 0, wind: 0, grav: 1,
   };
   { const wr = mulberry32(seed ^ 0x5bd1e995); g.windP = [wr() * 6.283, wr() * 6.283, wr() * 6.283, wr() < 0.5 ? -1 : 1]; }
+  g.up = cleanUpgrades(upgrades);
   addBar(g); genBars(g, 14);
   g.hands[0].grip = { bar: g.bars[0], x: -0.27 };
   g.hands[1].grip = { bar: g.bars[0], x: 0.27 };
@@ -437,7 +491,12 @@ function release(g, h, isThrow) {
     h.throwT = g.t;
     const other = g.hands[1 - h.side];
     const hop = !other.grip && g.t - other.throwT < 0.18;
-    if (hop) { g.stam -= 3; g.hops++; }
+    if (hop) {
+      g.stam -= 3; g.hops++;
+      // Spring Hop: a whole-body kick upward on a two-handed release
+      const kick = 0.22 * g.up.spring * CFG.DT;
+      if (kick) for (const p of P) p.py -= kick;
+    }
     g.events.push({ type: 'throw', side: h.side, hop, x: hp.x, y: hp.y });
   }
 }
@@ -445,7 +504,8 @@ function release(g, h, isThrow) {
 function grab(g, h, b, x, speed, vy) {
   const P = g.body.pts, hp = P[h.idx];
   const hvx = (hp.x - hp.px) / CFG.DT;
-  h.grip = { bar: b, x }; h.graceT = 0.2; h.holdT = 0; h.reachT = 0;
+  // a hard catch needs a moment for the arms to absorb it before the grip can tear loose
+  h.grip = { bar: b, x }; h.graceT = 0.2 + Math.min(0.35, speed * 0.06); h.holdT = 0; h.reachT = 0;
   hp.x = hp.px = x + b.ox; hp.y = hp.py = b.y + b.o;
   if (b.type === 'wobbly') b.vox += clamp(hvx, -4, 4) * 0.35; // your momentum sets the bar swinging
   b.vo -= Math.min(speed, 6) * 0.25; b.hit = 1;
@@ -469,6 +529,9 @@ function die(g, cause) {
   g.events.push({ type: 'die', cause });
 }
 
+// An arm can launch its hand when it's pulled in, or when a strong pull has carried the shoulder up
+// to (or past) the bar, where the arm straightens again above the hand.
+function armLoaded(P, h) { return dist(P[h.sh], P[h.idx]) < CFG.THROW_DIST || P[h.sh].y > P[h.idx].y - 0.05; }
 function rot(vx, vy, a) { const c = dcos(a), s = dsin(a); return [vx * c - vy * s, vx * s + vy * c]; }
 
 function stepSim(g, dt) {
@@ -493,7 +556,7 @@ function stepSim(g, dt) {
     }
     if (h.key && h.grip) h.holdT += dt;
     if (!h.key && h.prevKey) {
-      if (h.grip && h.holdT >= CFG.THROW_HOLD && dist(P[h.sh], P[h.idx]) < CFG.THROW_DIST) release(g, h, true);
+      if (h.grip && h.holdT >= CFG.THROW_HOLD && armLoaded(P, h)) release(g, h, true);
       h.holdT = 0;
     }
     h.prevKey = h.key;
@@ -510,7 +573,7 @@ function stepSim(g, dt) {
     h.pullF = 0;
     if (!alive) continue;
     if (h.grip && h.key) {
-      const fmax = CFG.PULL_MAX * (both ? CFG.BOTH_BONUS : 1) * strength * WEIGHT;
+      const fmax = CFG.PULL_MAX * (both ? CFG.BOTH_BONUS : 1) * strength * WEIGHT * (1 + 0.08 * g.up.pull);
       const f = Math.min(CFG.PULL_K * Math.max(0, d - CFG.PULL_TARGET), fmax);
       sh.fx += dx / d * f; sh.fy += dy / d * f;
       h.pullF = f;
@@ -680,7 +743,7 @@ function stepSim(g, dt) {
       h.load += (inst - h.load) * Math.min(1, dt / 0.12);
       h.grip.bar.f -= clamp(g.Fs.y / nG, -3 * WEIGHT, 3 * WEIGHT);
       h.grip.bar.fx -= clamp(g.Fs.x / nG, -3 * WEIGHT, 3 * WEIGHT);
-      const gripMax = gripBase * (h.grip.bar.type === 'icy' ? 0.62 : 1);
+      const gripMax = gripBase * (h.grip.bar.type === 'icy' ? 0.62 : 1) * (1 + 0.1 * g.up.grip);
       if (alive && h.graceT <= 0 && h.load > gripMax) {
         const bar = h.grip.bar;
         release(g, h, false);
@@ -764,6 +827,7 @@ function stepSim(g, dt) {
       drain += 5; // one-armed effort is extra hard
     }
     if (g.state === 'menu') { rec = 30; drain = 0; }
+    if (g.state !== 'menu') { drain *= 1 - 0.08 * g.up.stam; rec *= 1 + 0.15 * g.up.rec; }
     g.stam += (rec * (1 - 0.35 * d) - drain * (1 + 0.8 * d)) * dt;
     g.stam = clamp(g.stam, 0, 100);
     if (g.stam <= 0.5) g.exhaustT += dt; else g.exhaustT = Math.max(0, g.exhaustT - dt * 2);
@@ -810,20 +874,22 @@ function minDist(P, W, i, j, m) {
 
 function score(g) { return Math.round(g.maxHeight * 100 + g.bonus); }
 
-// 0 = releasing now does nothing, 1 = would let go but the body is already sinking (late),
-// 2 = would let go while still rising (the sweet spot for a hop).
+// The release cue. 2 = sweet spot: arms pulled in tight while the body is still rising fast (measured
+// to give ~90%+ of the best possible hop). 1 = late: the rise has stalled, the hop will be weak.
+// 0 = too early (or not pulling). Display only: it never changes the physics.
 function throwReady(g, h) {
   if (!h.grip || !h.key || h.holdT < CFG.THROW_HOLD) return 0;
   const P = g.body.pts;
-  if (dist(P[h.sh], P[h.idx]) >= CFG.THROW_DIST) return 0;
-  const sh = P[h.sh];
-  return (sh.y - sh.py) / CFG.DT > 0.25 ? 2 : 1;
+  if (!armLoaded(P, h)) return 0;
+  const sh = P[h.sh], hp = P[h.idx], vy = (sh.y - sh.py) / CFG.DT;
+  if (vy <= 1.5) return 1;
+  return dist(sh, hp) < 0.22 || sh.y > hp.y - 0.05 ? 2 : 0;
 }
 
 // ---------------- Replays ----------------
 // A run is fully determined by its ladder seed and the per-step S/K inputs, so a replay is
 // just the seed plus the steps where the inputs changed. Format (bytes, then base64url):
-// [version][kind][seed u32][day varint][total steps varint][changes: varint(delta*4 + bits)...]
+// [version][kind][seed u32][day varint][total steps varint][n][n upgrade levels][changes: varint(delta*4 + bits)...]
 const REPLAY_VERSION = 2; // bump whenever the simulation changes: old replays would no longer reproduce
 function pushVarint(out, v) { while (v >= 128) { out.push((v & 127) | 128); v = Math.floor(v / 128); } out.push(v); }
 function readVarint(buf, pos) {
@@ -859,6 +925,7 @@ function encodeReplay(rec) {
   const out = [REPLAY_VERSION, rec.kind === 'daily' ? 1 : 0];
   const sd = rec.seed >>> 0; out.push(sd >>> 24, (sd >>> 16) & 255, (sd >>> 8) & 255, sd & 255);
   pushVarint(out, rec.day || 0); pushVarint(out, rec.steps);
+  const up = cleanUpgrades(rec.up); out.push(UPGRADES.length); for (const { id } of UPGRADES) out.push(up[id]);
   let last = 0;
   for (const [step, bits] of rec.changes) { pushVarint(out, (step - last) * 4 + bits); last = step; }
   return toB64(out);
@@ -870,9 +937,13 @@ function decodeReplay(str) {
   const seed = ((b[2] << 24) | (b[3] << 16) | (b[4] << 8) | b[5]) >>> 0;
   const pos = { i: 6 };
   const day = readVarint(b, pos), steps = readVarint(b, pos);
+  const nUp = b[pos.i++], upRaw = {};
+  if (!(nUp >= 0 && nUp <= 16) || pos.i + nUp > b.length) throw new Error('truncated');
+  for (let k = 0; k < nUp; k++) { const id = UPGRADES[k] && UPGRADES[k].id, v = b[pos.i++]; if (id) { if (v > UPGRADE_MAX) throw new Error('bad upgrade level'); upRaw[id] = v; } }
+  const up = cleanUpgrades(upRaw);
   const changes = []; let last = 0;
   while (pos.i < b.length) { const v = readVarint(b, pos); last += Math.floor(v / 4); changes.push([last, v & 3]); }
-  return { seed, kind, day, steps, changes };
+  return { seed, kind, day, steps, changes, up };
 }
 // Drives a game from a replay one step at a time.
 function makePlayback(rec) {
@@ -891,7 +962,7 @@ function applyPlayback(g, pb) {
 }
 // Fast-forward a whole replay without drawing it. Returns how high that run got.
 function simulateReplay(rec) {
-  const g = newGame(rec.seed, 'play'), pb = makePlayback(rec);
+  const g = newGame(rec.seed, 'play', rec.up), pb = makePlayback(rec);
   const cap = rec.steps + 600;
   while (g.n < cap && !(g.state === 'dying' && g.deathT > 0.2)) { applyPlayback(g, pb); stepSim(g, CFG.DT); g.events.length = 0; }
   return { maxHeight: g.maxHeight, bars: g.maxBar, died: g.state === 'dying' };
@@ -907,7 +978,8 @@ function dailySeed(day) {
 
 globalThis.RTB = { CFG, newGame, stepSim, score, dist, throwReady, encodeReplay, decodeReplay, makePlayback, playbackInputs,
   applyPlayback, simulateReplay,
-  dayNumber, dailySeed, REPLAY_VERSION, ZONES, zoneAt, HEAD, LSH, RSH, LH, RH };
+  dayNumber, dailySeed, REPLAY_VERSION, ZONES, zoneAt, UPGRADES, UPGRADE_MAX, UPGRADE_COST, cleanUpgrades, upgradesCost, noUpgrades, runCoins,
+  HEAD, LSH, RSH, LH, RH };
 // @sim-end
 
 /* =====================================================================
@@ -1119,16 +1191,17 @@ if (typeof document !== 'undefined') (function boot() {
 
   function makeGhost(r, name, lk) {
     if (!r) return null;
-    return { g: newGame(r.seed, 'play'), pb: makePlayback(r), name, max: simulateReplay(r).maxHeight, look: lk ? cleanLook(lk) : null };
+    return { g: newGame(r.seed, 'play', r.up), pb: makePlayback(r), name, max: simulateReplay(r).maxHeight, look: lk ? cleanLook(lk) : null };
   }
   function startRun(cfg) {
     initAudio();
     run = cfg;
-    g = newGame(cfg.seed, 'play');
+    const up = cfg.kind === 'daily' ? {} : wallet.levels;
+    g = newGame(cfg.seed, 'play', up);
     gh = makeGhost(cfg.ghost, cfg.ghostName, cfg.ghostLook);
     const rk = cfg.ghost ? cfg.ghost.kind : cfg.kind === 'daily' ? 'daily' : 'endless';
     const rd = cfg.ghost ? cfg.ghost.day : cfg.day || 0;
-    rec = { seed: cfg.seed, kind: rk, day: rd, steps: 0, changes: [], last: 0 };
+    rec = { seed: cfg.seed, kind: rk, day: rd, steps: 0, changes: [], last: 0, up: cleanUpgrades(up) };
     runHops = 0;
     resetFx(); mode = 'play'; hideOverlays();
     cam.y = g.body.pts[HEAD].y - 0.6;
@@ -1149,7 +1222,7 @@ if (typeof document !== 'undefined') (function boot() {
   function startReplay(r, name, lk) {
     initAudio();
     watching = { rec: r, name, look: lk };
-    g = newGame(r.seed, 'play'); pb = makePlayback(r); gh = null;
+    g = newGame(r.seed, 'play', r.up); pb = makePlayback(r); gh = null;
     resetFx(); mode = 'replay'; hideOverlays();
     cam.y = g.body.pts[HEAD].y - 0.6;
   }
@@ -1162,13 +1235,14 @@ if (typeof document !== 'undefined') (function boot() {
   function refreshMenu() {
     daily = loadDaily();
     $('dailyBtn').textContent = 'Daily Ladder #' + today;
-    $('dailyInfo').textContent = daily.best > 0 ? "Today's best: " + daily.best.toFixed(1) + 'm · race your ghost' : 'Same ladder for everyone today';
+    $('dailyInfo').textContent = (daily.best > 0 ? "Today's best: " + daily.best.toFixed(1) + 'm · race your ghost' : 'Same ladder for everyone today') + ' · no upgrades';
     if (challenge) {
       $('challenge').style.display = 'block'; $('menu').classList.add('has-challenge');
       const where = challenge.rec.kind === 'daily' ? 'Daily Ladder #' + challenge.rec.day : 'their ladder';
       $('cText').textContent = 'Someone climbed ' + challenge.max.toFixed(1) + 'm on ' + where + '. Can you beat them?';
     } else { $('challenge').style.display = 'none'; $('menu').classList.remove('has-challenge'); }
     $('achCount').textContent = unlocked.size + '/' + ACH.length;
+    $('coinCount').textContent = '· ' + coinsLeft().toLocaleString() + ' 🪙';
     $('profileLine').textContent = isOnline() ? (profile ? 'Playing as ' + profile.name : 'Online: your runs go on the leaderboards')
       : online === 'offline' ? 'Leaderboards offline: runs will upload later' : '';
   }
@@ -1235,6 +1309,17 @@ if (typeof document !== 'undefined') (function boot() {
     const localCustom = JSON.stringify(look) !== JSON.stringify(DEFAULT_LOOK);
     if (serverLook && (linking || !localCustom)) { look = serverLook; store.set('rtb_look', look); }
     else if (localCustom) syncLookSoon();
+    // upgrades: a linked device takes the profile's wallet; otherwise keep the best of both
+    if (me.upgrades) {
+      const su = cleanUpgrades(me.upgrades), se = me.earned | 0;
+      if (linking) wallet = { earned: Math.max(se, upgradesCost(su)), levels: su };
+      else {
+        const merged = {}; for (const { id } of UPGRADES) merged[id] = Math.max(su[id], wallet.levels[id]);
+        const earned = Math.max(wallet.earned, se);
+        wallet = { earned, levels: upgradesCost(merged) <= earned ? cleanUpgrades(merged) : wallet.levels };
+      }
+      store.set('rtb_wallet', wallet); syncUpgradesSoon();
+    }
     refreshMenu();
   }
   async function ensureProfile() {
@@ -1249,7 +1334,7 @@ if (typeof document !== 'undefined') (function boot() {
   let pending = store.get('rtb_pending', []).filter((c) => { try { decodeReplay(c); return true; } catch (e) { return false; } }), flushing = null;
   function queueRun(code) {
     if (!pending.includes(code)) pending.push(code);
-    if (pending.length > 10) pending = pending.slice(-10);
+    if (pending.length > 60) pending = pending.slice(-60);
     store.set('rtb_pending', pending);
   }
   function flushRuns() {
@@ -1268,12 +1353,14 @@ if (typeof document !== 'undefined') (function boot() {
           pending.shift(); store.set('rtb_pending', pending);
           const r = results[code];
           if (r && !r.error) {
+            if (r.earned > wallet.earned) { wallet.earned = r.earned; store.set('rtb_wallet', wallet); }
             if ((r.alltime && r.alltime.rank <= 10) || (r.daily && r.daily.rank <= 10)) unlock('top10');
             if (r.daily && r.daily.rank === 1) unlock('daily_champ');
           }
         }
       } catch (e) { /* no profile yet (offline): keep the queue */ }
       flushing = null;
+      syncUpgradesSoon(); // now the server has seen these runs' coins
       return results;
     })();
     return flushing;
@@ -1313,6 +1400,8 @@ if (typeof document !== 'undefined') (function boot() {
     { id: 'zone_space', icon: '🪐', name: 'Houston, We Have a Climber', desc: 'Reach Space (80m)' },
     { id: 'wobbly', icon: '🎪', name: 'Trapeze Artist', desc: 'Reach a new bar on a wobbly bar' },
     { id: 'icy', icon: '🧊', name: 'Cold Hands', desc: 'Reach a new bar on an icy bar' },
+    { id: 'first_upgrade', icon: '🎟️', name: 'Gym Membership', desc: 'Buy your first upgrade' },
+    { id: 'maxed', icon: '⚡', name: 'Fully Juiced', desc: 'Max out an upgrade' },
   ];
   const ACH_BY_ID = Object.fromEntries(ACH.map((a) => [a.id, a]));
 
@@ -1414,7 +1503,7 @@ if (typeof document !== 'undefined') (function boot() {
   let panel = null, lbBoard = 'daily';
   function openPanel(id) {
     panel = id; $(id).classList.remove('hidden');
-    if (id === 'lb') loadBoard(); else if (id === 'locker') renderLocker(); else renderAchievements();
+    if (id === 'lb') loadBoard(); else if (id === 'locker') renderLocker(); else if (id === 'shop') renderShop(); else renderAchievements();
   }
   function closePanel() { if (panel) $(panel).classList.add('hidden'); panel = null; refreshMenu(); }
   for (const el of document.querySelectorAll('[data-close]')) el.onclick = closePanel;
@@ -1422,6 +1511,45 @@ if (typeof document !== 'undefined') (function boot() {
   $('lbBtn').onclick = () => openPanel('lb');
   $('achBtn').onclick = () => openPanel('ach');
   $('lockerBtn').onclick = () => openPanel('locker');
+
+  // ---- upgrade shop ----
+  // wallet: lifetime Chalk earned + levels owned; spendable = earned - cost of owned levels
+  let wallet = (() => { const w = store.get('rtb_wallet', {}); return { earned: Math.max(0, w.earned | 0), levels: cleanUpgrades(w.levels) }; })();
+  const coinsLeft = () => wallet.earned - upgradesCost(wallet.levels);
+  function saveWallet() { store.set('rtb_wallet', wallet); refreshMenu(); }
+  let upTimer = null;
+  function syncUpgradesSoon() {
+    clearTimeout(upTimer);
+    upTimer = setTimeout(() => {
+      if (!isOnline() || !profile) return;
+      api('PUT', '/api/me/upgrades', { upgrades: wallet.levels }, true).catch(() => { /* runs still uploading: retried after the next upload */ });
+    }, 1200);
+  }
+  function buyUpgrade(id) {
+    const lv = wallet.levels[id];
+    if (lv >= UPGRADE_MAX || coinsLeft() < UPGRADE_COST[lv]) return;
+    wallet.levels = cleanUpgrades(Object.assign({}, wallet.levels, { [id]: lv + 1 }));
+    saveWallet(); syncUpgradesSoon();
+    SFX.catchUp(); unlock('first_upgrade'); if (lv + 1 === UPGRADE_MAX) unlock('maxed');
+    renderShop();
+  }
+  function renderShop() {
+    $('shopCoins').textContent = coinsLeft().toLocaleString();
+    const list = $('shopList'); list.innerHTML = '';
+    for (const u of UPGRADES) {
+      const lv = wallet.levels[u.id], cost = UPGRADE_COST[lv];
+      const row = document.createElement('div'); row.className = 'uprow';
+      row.innerHTML = '<div class="ic"></div><div class="info"><div class="nm"></div><div class="ds"></div><div class="pips"></div></div>';
+      row.querySelector('.ic').textContent = u.icon;
+      row.querySelector('.nm').textContent = u.name + (lv ? ' · Lv ' + lv : '');
+      row.querySelector('.ds').textContent = u.desc;
+      row.querySelector('.pips').innerHTML = Array.from({ length: UPGRADE_MAX }, (_, i) => '<i' + (i < lv ? ' class="on"' : '') + '></i>').join('');
+      const b = btn(lv >= UPGRADE_MAX ? 'MAXED' : cost + ' 🪙', () => buyUpgrade(u.id));
+      b.disabled = lv >= UPGRADE_MAX || coinsLeft() < cost;
+      row.appendChild(b); list.appendChild(row);
+    }
+  }
+  $('shopBtn').onclick = () => openPanel('shop');
 
   // ---- locker ----
   let lockerSlot = 'hat', previewG = null, previewT = 0;
@@ -1509,7 +1637,8 @@ if (typeof document !== 'undefined') (function boot() {
         const medal = ['🥇', '🥈', '🥉'][e.rank - 1];
         li.innerHTML = '<span class="rk"></span><span class="nm"></span><span class="ht"></span>';
         li.querySelector('.rk').innerHTML = medal ? '<span class="medal">' + medal + '</span>' : '#' + e.rank;
-        li.querySelector('.nm').textContent = e.name; if (e.you) li.title = 'You';
+        li.querySelector('.nm').textContent = e.name + (e.upgrades ? '  ⚡' + e.upgrades : ''); if (e.you) li.title = 'You';
+        if (e.upgrades) li.querySelector('.nm').title = 'Upgrade levels used on this run';
         li.querySelector('.ht').textContent = e.height.toFixed(1) + 'm';
         li.appendChild(btn('▶', () => playFromBoard(e, false)));
         li.appendChild(btn('👻', () => playFromBoard(e, true)));
@@ -1617,7 +1746,7 @@ if (typeof document !== 'undefined') (function boot() {
     mode = 'over';
     const h = g.maxHeight;
     rec.steps = g.n;
-    lastRec = { seed: rec.seed, kind: rec.kind, day: rec.day, steps: rec.steps, changes: rec.changes };
+    lastRec = { seed: rec.seed, kind: rec.kind, day: rec.day, steps: rec.steps, changes: rec.changes, up: rec.up };
     if (h > best + 0.05) { best = h; saveBest(); newBestThisRun = true; }
     let bestLbl = 'BEST', bestVal = best;
     if (rec.kind === 'daily' && rec.day === today) {
@@ -1647,14 +1776,19 @@ if (typeof document !== 'undefined') (function boot() {
     $('oCause').textContent = (causes[g.deathCause] || '') + ' · Bars climbed: ' + g.maxBar + (g.hops ? ' · Hops: ' + g.hops : '');
     const r = lastRec;
     achievementsAfterRun(ghostBeaten);
+    const gain = runCoins(g);
+    wallet.earned += gain; saveWallet();
+    $('oCoins').textContent = gain > 0 ? '+' + gain + ' 🪙 Chalk · ' + coinsLeft().toLocaleString() + ' to spend' : '';
     const rankEl = $('oRank'); rankEl.textContent = '';
-    if (apiBase && online !== 'off' && h >= 0.5) {
+    // every run that earns Chalk is uploaded, so the server's coin total matches the device's
+    if (apiBase && online !== 'off' && (h >= 0.5 || gain > 0)) {
       rankEl.textContent = isOnline() ? 'Submitting to the leaderboard…' : 'Leaderboards offline: this run will upload later';
       const mine = r;
       submitRun(encodeReplay(r)).then((res) => {
         if (lastRec !== mine || mode !== 'over') return;
         if (!res) { rankEl.textContent = isOnline() ? '' : 'Leaderboards offline: this run will upload later'; return; }
         if (res.error) { rankEl.textContent = 'Not ranked: ' + res.error; return; }
+        if (res.earned > wallet.earned) { wallet.earned = res.earned; saveWallet(); }
         const parts = [];
         if (res.daily) parts.push('#' + res.daily.rank + ' today' + (res.daily.improved ? '' : ' (best ' + res.daily.best.toFixed(1) + 'm)'));
         parts.push('#' + res.alltime.rank + ' all-time' + (res.alltime.improved ? '' : ' (best ' + res.alltime.best.toFixed(1) + 'm)'));
@@ -1665,6 +1799,7 @@ if (typeof document !== 'undefined') (function boot() {
       btn('▶ Watch replay', () => startReplay(r, 'YOU')),
       btn('👻 Race this run', () => raceReplay(r, 'YOUR GHOST', look)),
       btn('🔗 Share challenge', () => shareRun(r, h)),
+      btn('🛒 Upgrades', () => openPanel('shop')),
       btn('🏆 Leaderboards', () => openPanel('lb')),
       btn('Main menu', toMenu),
     ]);
@@ -2667,7 +2802,8 @@ if (typeof document !== 'undefined') (function boot() {
     ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
     ctx.fillStyle = ahead ? '#e0357a' : '#1d1b2f'; ctx.fillText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
     ctx.font = 'bold 12px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.7);
-    const badge = mode === 'replay' ? '' : run && run.kind === 'daily' ? 'DAILY #' + run.day : run && run.kind === 'challenge' ? 'GHOST RACE' : '';
+    const upLv = Object.values(g.up || {}).reduce((a, b) => a + b, 0);
+    const badge = mode === 'replay' ? '' : run && run.kind === 'daily' ? 'DAILY #' + run.day + ' · NO UPGRADES' : (run && run.kind === 'challenge' ? 'GHOST RACE' : '') + (upLv ? (run && run.kind === 'challenge' ? ' · ' : '') + '⚡' + upLv : '');
     if (badge) ctx.fillText(badge, W - pr, pt + 68);
     if (mode === 'replay') {
       const t = '▶ REPLAY' + (watching && watching.name !== 'YOU' ? ' · ' + watching.name : '');
