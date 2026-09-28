@@ -28,7 +28,7 @@ function verifyReplay(RTB, code) {
     if (step < last || step > rec.steps || bits < 0 || bits > 3) throw new Error('malformed replay');
     last = step;
   }
-  const g = RTB.newGame(rec.seed, 'play', rec.up), pb = RTB.makePlayback(rec);
+  const g = RTB.newGame(rec.seed, 'play', rec.up, rec), pb = RTB.makePlayback(rec);
   const cap = rec.steps + 600;
   while (g.n < cap && !(g.state === 'dying' && g.deathT > 0.2)) {
     RTB.applyPlayback(g, pb); RTB.stepSim(g, RTB.CFG.DT); g.events.length = 0;
