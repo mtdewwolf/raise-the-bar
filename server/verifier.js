@@ -12,7 +12,7 @@ if (!isMainThread) {
   });
 } else {
   class VerifierPool {
-    constructor(size = 1) {
+    constructor(size = 2) {
       this.jobs = new Map(); this.queue = []; this.nextId = 1;
       this.workers = Array.from({ length: Math.max(1, size) }, () => this._spawn());
     }

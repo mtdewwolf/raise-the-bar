@@ -21,7 +21,7 @@ docker build -f server/Dockerfile -t rtb-server .
 docker run -p 8787:8787 -v rtb-data:/data rtb-server
 ```
 
-This runs on any host that can run Node or Docker and keep a small disk (the SQLite file), for example Fly.io, Railway, Render with a persistent disk, or a VPS. Verification costs about 200 ms of CPU per minute of play, which rules out edge "worker" platforms that cap CPU at around 10 ms per request.
+This runs on any host that can run Node or Docker and keep a small disk (the SQLite file), for example Fly.io, Railway, Render with a persistent disk, or a VPS. Verification costs about 200 ms of CPU per minute of play, so the default of 2 verification workers wants a host with 2 CPU cores. That rules out edge "worker" platforms that cap CPU at around 10 ms per request.
 
 ## Point the game at it
 
@@ -39,7 +39,7 @@ If no server is configured, or it can't be reached, the game still works fully. 
 | --- | --- | --- |
 | `PORT` | `8787` | |
 | `RTB_DB` | `server/data/rtb.sqlite` | SQLite file. Keep it on a persistent disk |
-| `RTB_VERIFY_WORKERS` | `1` | Replay verification threads |
+| `RTB_VERIFY_WORKERS` | `2` | Replay verification threads. Give the server at least 2 CPU cores to match |
 | `RTB_SERVE_GAME` | `1` | Set to `0` to serve only the API |
 | `RTB_ALLOWED_ORIGIN` | `*` | CORS origin. `*` is safe because auth uses bearer tokens, not cookies |
 | `RTB_TRUST_PROXY` | `0` | Set to `1` behind a reverse proxy so rate limits use `X-Forwarded-For` |
