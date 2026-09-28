@@ -40,16 +40,21 @@ function openDb(file) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  // migration: players.look (added with the Locker)
+  if (!db.prepare('PRAGMA table_info(players)').all().some((c) => c.name === 'look')) {
+    db.exec("ALTER TABLE players ADD COLUMN look TEXT NOT NULL DEFAULT '{}'");
+  }
   const q = {
     insertPlayer: db.prepare('INSERT INTO players (token_hash, name, created_at) VALUES (?, ?, ?)'),
-    playerByToken: db.prepare('SELECT id, name, achievements FROM players WHERE token_hash = ?'),
-    playerById: db.prepare('SELECT id, name, achievements FROM players WHERE id = ?'),
+    playerByToken: db.prepare('SELECT id, name, achievements, look FROM players WHERE token_hash = ?'),
+    playerById: db.prepare('SELECT id, name, achievements, look FROM players WHERE id = ?'),
+    setLook: db.prepare('UPDATE players SET look = ? WHERE id = ?'),
     renamePlayer: db.prepare('UPDATE players SET name = ? WHERE id = ?'),
     setAchievements: db.prepare('UPDATE players SET achievements = ? WHERE id = ?'),
     runByHash: db.prepare('SELECT id, player_id FROM runs WHERE replay_hash = ?'),
     insertRun: db.prepare(`INSERT INTO runs (player_id, kind, day, seed, height, score, bars, hops, replay, replay_hash, created_at)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-    runById: db.prepare('SELECT r.id, r.replay, r.height, r.kind, r.day, p.name FROM runs r JOIN players p ON p.id = r.player_id WHERE r.id = ?'),
+    runById: db.prepare('SELECT r.id, r.replay, r.height, r.kind, r.day, p.name, p.look FROM runs r JOIN players p ON p.id = r.player_id WHERE r.id = ?'),
     best: db.prepare('SELECT height, run_id FROM bests WHERE board = ? AND day = ? AND player_id = ?'),
     upsertBest: db.prepare(`INSERT INTO bests (board, day, player_id, run_id, height, achieved_at) VALUES (?, ?, ?, ?, ?, ?)
                             ON CONFLICT (board, day, player_id) DO UPDATE SET run_id = excluded.run_id, height = excluded.height, achieved_at = excluded.achieved_at`),

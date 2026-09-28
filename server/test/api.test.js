@@ -137,3 +137,25 @@ test('serves the game and answers CORS preflight', () => withServer(async (call)
   assert.equal((await call('OPTIONS', '/api/runs')).status, 204);
   assert.equal((await call('GET', '/api/nope')).status, 404);
 }));
+
+test('looks are saved on the profile and shown with runs', () => withServer(async (call) => {
+  const t = (await call('POST', '/api/player', { name: 'Fancy' })).body.token;
+  const r = await call('PATCH', '/api/me', { look: { hat: 'crown', jersey: 'gold', suit: 'none', bogus: 'x', band: 'NOT OK' } }, t);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.look, { hat: 'crown', jersey: 'gold', suit: 'none' });
+  assert.equal((await call('PATCH', '/api/me', { look: 'nope' }, t)).status, 400);
+  assert.equal((await call('PATCH', '/api/me', {}, t)).status, 400);
+  const run = await call('POST', '/api/runs', { replay: playRun(77, { hops: 1 }).code }, t);
+  const rep = await call('GET', '/api/runs/' + run.body.runId);
+  assert.equal(rep.body.look.hat, 'crown');
+}));
+
+test('replays from older physics versions are rejected', () => withServer(async (call) => {
+  const t = (await call('POST', '/api/player', {})).body.token;
+  const code = playRun(5, { hops: 1 }).code;
+  const bytes = Buffer.from(code.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  bytes[0] = RTB.REPLAY_VERSION - 1; // pretend it was recorded before the zones update
+  const old = bytes.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const r = await call('POST', '/api/runs', { replay: old }, t);
+  assert.equal(r.status, 422); assert.match(r.body.error, /version/);
+}));
