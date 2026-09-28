@@ -37,7 +37,7 @@ function createApp(opts = {}) {
   if (dbFile !== ':memory:') fs.mkdirSync(path.dirname(dbFile), { recursive: true });
   const { db, q } = openDb(dbFile);
   const RTB = loadSim(opts.gameFile);
-  const pool = opts.pool || new VerifierPool(Number(process.env.RTB_VERIFY_WORKERS) || 1);
+  const pool = opts.pool || new VerifierPool(Number(process.env.RTB_VERIFY_WORKERS) || 2);
   const now = opts.now || (() => Date.now());
   const serveGame = opts.serveGame ?? process.env.RTB_SERVE_GAME !== '0';
   const gameFile = opts.gameFile || path.join(__dirname, '..', 'index.html');
