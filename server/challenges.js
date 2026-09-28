@@ -2,13 +2,13 @@
 const crypto = require('node:crypto');
 
 // Challenges have their own results: archived event races never change public boards or wallets.
-function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpError, demo }) {
+function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpError }) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS challenges (
       code TEXT PRIMARY KEY, creator_id INTEGER NOT NULL REFERENCES players(id),
       kind TEXT NOT NULL, day INTEGER NOT NULL, seed INTEGER NOT NULL, version INTEGER NOT NULL,
       created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-      parent_code TEXT REFERENCES challenges(code), mock INTEGER NOT NULL DEFAULT 0
+      parent_code TEXT REFERENCES challenges(code)
     );
     CREATE TABLE IF NOT EXISTS challenge_members (
       code TEXT NOT NULL REFERENCES challenges(code), player_id INTEGER NOT NULL REFERENCES players(id),
@@ -26,7 +26,7 @@ function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpErr
   const get = db.prepare('SELECT * FROM challenges WHERE code = ?');
   const member = db.prepare('SELECT 1 FROM challenge_members WHERE code = ? AND player_id = ?');
   const join = db.prepare('INSERT OR IGNORE INTO challenge_members VALUES (?, ?, ?)');
-  const insert = db.prepare('INSERT INTO challenges VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  const insert = db.prepare('INSERT INTO challenges(code,creator_id,kind,day,seed,version,created_at,expires_at,parent_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const add = db.prepare('INSERT OR IGNORE INTO challenge_attempts(code,player_id,replay,replay_hash,height,created_at) VALUES(?,?,?,?,?,?)');
   const duplicate = db.prepare('SELECT 1 FROM challenge_attempts WHERE code=? AND player_id=? AND replay_hash=?');
   const roster = db.prepare(`SELECT m.player_id, p.name, p.look,
@@ -38,7 +38,7 @@ function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpErr
   const version = kind => kind === 'weekly' ? RTB.WEEKLY_REPLAY_VERSION : RTB.REPLAY_VERSION;
   function lookup(code) {
     const c = get.get(String(code).toUpperCase());
-    if (!c) throw new HttpError(404, 'Challenge not found. Check the join code.');
+    if (!c) throw new HttpError(404, 'This invite was not found. Ask your friend for a new invite.');
     return c;
   }
   function active(c) {
@@ -60,14 +60,14 @@ function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpErr
       createdAt: c.created_at, expiresAt: c.expires_at, time: now(),
       status: expired ? 'finished' : !compatible ? 'outdated' : 'active',
       joined: !!p && !!member.get(c.code, p.id), owner: !!p && c.creator_id === p.id,
-      mock: !!c.mock, parentCode: c.parent_code, entries,
+      parentCode: c.parent_code, entries,
       rematches: db.prepare('SELECT code FROM challenges WHERE parent_code=? ORDER BY created_at DESC LIMIT 10').all(c.code).map(r => r.code) };
   }
-  function create(p, rules, parent = null, mock = false) {
+  function create(p, rules, parent = null) {
     let code;
     do { code = crypto.randomBytes(6).toString('hex').toUpperCase(); } while (get.get(code));
     const t = now();
-    insert.run(code, p.id, rules.kind, rules.day || 0, rules.seed, version(rules.kind), t, t + 86400000, parent, mock ? 1 : 0);
+    insert.run(code, p.id, rules.kind, rules.day || 0, rules.seed, version(rules.kind), t, t + 86400000, parent);
     join.run(code, p.id, t);
     return get.get(code);
   }
@@ -113,30 +113,8 @@ function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpErr
       return snapshot(c, p);
     },
   };
-  // Test-only opponents produce real replay inputs; never accept invented heights from clients.
-  function mockReplay(c, hops) {
-    const g = RTB.newGame(c.seed, 'play', {}, c), changes = []; let last = 0;
-    while (!(g.state === 'dying' && g.deathT > 1.5) && g.n < 14400) {
-      const bits = g.state === 'play' && (g.n < hops * 205 ? g.n % 205 < 24 : true) ? 3 : 0;
-      if (bits !== last) { changes.push([g.n, bits]); last = bits; }
-      g.hands[0].key = !!(bits & 1); g.hands[1].key = !!(bits & 2);
-      RTB.stepSim(g, RTB.CFG.DT); g.events.length = 0;
-    }
-    return RTB.encodeReplay({ seed: c.seed, kind: c.kind, day: c.day, up: {}, steps: g.n, changes });
-  }
-  async function addMock(c, name, hops) {
-    const id = Number(q.insertPlayer.run(crypto.randomBytes(32).toString('hex'), name, now()).lastInsertRowid);
-    const p = { id }; join.run(c.code, id, now());
-    const code = mockReplay(c, hops), v = await verify(code, c); save(c, p, code, v.height);
-  }
-  if (demo) routes['POST /api/challenges/demo'] = async (req, ip) => {
-    const p = auth(req, true); rate(p, ip); limit('demo:' + p.id, 5, 3600000);
-    const c = create(p, { kind: 'endless', day: 0, seed: 11 }, null, true);
-    await addMock(c, 'Mock Noodle', 1); await addMock(c, 'Mock Gravity', 3);
-    return snapshot(c, p);
-  };
   function resolve(method, path) {
-    const m = /^\/api\/challenges\/([A-Fa-f0-9]{12})(?:\/(join|attempts|rematch|mock-turn|finish))?$/.exec(path);
+    const m = /^\/api\/challenges\/([A-Fa-f0-9]{12})(?:\/(join|attempts|rematch))?$/.exec(path);
     if (!m) return null;
     if (method === 'GET' && !m[2]) return req => snapshot(lookup(m[1]), auth(req, false));
     if (method !== 'POST' || !m[2]) return null;
@@ -163,20 +141,11 @@ function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpErr
           if (existing) return snapshot(existing, p);
           const next = create(p, c.kind === 'endless' ? newRules('endless') : c, c.code);
           return snapshot(next, p);
-        } else {
-          if (!demo || !c.mock) throw new HttpError(404, 'Not found');
-          if (p.id !== c.creator_id) throw new HttpError(403, 'Only the mock challenge creator can use test controls.');
-          active(c);
-          if (action === 'finish') db.prepare('UPDATE challenges SET expires_at=? WHERE code=?').run(now(), c.code);
-          else {
-            if (count.get(c.code).n >= 8) throw new HttpError(409, 'All mock friends have played. Create another mock challenge.');
-            await addMock(c, 'Mock Friend ' + count.get(c.code).n, count.get(c.code).n + 1);
-          }
         }
       }
       return snapshot(lookup(c.code), p);
     };
   }
-  return { routes, resolve };
+  return { routes, resolve, invite: code => snapshot(lookup(code), null) };
 }
 module.exports = { challengeRoutes };

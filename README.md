@@ -64,9 +64,9 @@ The physics is fully deterministic. It uses only arithmetic that gives the same 
 
 ## Friend challenges
 
-Open **🤝 Challenge friends** to create a 24-hour group challenge, or challenge friends from a finished run. Share a short invite link or join code, race the leader's ghost with equal no-upgrade rules, compare verified results, and start a rematch. Browser and Android use the same challenge server. Weekly challenge rules stay fixed even when the public event resets.
+Open **🤝 Challenge friends** to create a 24-hour group challenge, or challenge friends from a finished run. Send a tappable invite through your messaging app or let a friend scan the QR code, race the leader's ghost with equal no-upgrade rules, compare verified results, and start a rematch. Browser and Android use the same challenge server. Weekly challenge rules stay fixed even when the public event resets.
 
-The isolated test deployment can enable labeled mock opponents and test controls. See [friend challenge setup and testing](server/FRIEND_CHALLENGES.md).
+Opening an invite goes straight to the challenge with a **Join & play** button. See [friend challenge setup and testing](server/FRIEND_CHALLENGES.md).
 
 ## Zones
 

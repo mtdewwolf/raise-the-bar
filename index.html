@@ -175,19 +175,20 @@
   #friends button:focus-visible, #friends input:focus-visible, #friends select:focus-visible { outline: 3px solid #2f7bff; outline-offset: 3px; }
   #friendStatus { font-size: 15px; min-height: 24px; margin: 12px 0; }
   .friend-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
-  .friend-code { font: bold 26px monospace; letter-spacing: 2px; background: #ffd23f; border: 3px solid var(--ink); padding: 12px; margin: 14px 0 8px; text-align: center; user-select: text; }
   .friend-rules, .friend-note { font-size: 14px; line-height: 1.5; }
   .friend-board { max-height: none; }
   .friend-board li { flex-wrap: wrap; }
   .friend-board .nm { white-space: normal; min-width: 90px; }
   .friend-item { border-top: 2px solid var(--ink); padding: 15px 0; }
   .friend-item p { font-size: 14px; margin: 8px 0; }
-  .friend-test { border: 2px dashed #6b3fa0; padding: 12px; margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
-  .friend-test strong { width: 100%; }
   .friend-winner { font-size: 20px; font-weight: bold; background: #ffd23f; padding: 12px; border-radius: 8px; }
-  #friendDemo { background: #ffd23f; }
+  .friend-invite { margin: 18px 0; padding: 16px; border: 3px solid var(--ink); border-radius: 12px; background: #fff; }
+  .friend-invite summary { font-weight: bold; cursor: pointer; }
+  .friend-qr { display: block; width: 220px; max-width: 100%; height: auto; margin: 14px auto; }
+  .friend-invite a { color: #194da8; font-weight: bold; padding: 10px 0; display: inline-block; }
+  .friend-invite p { font-size: 14px; line-height: 1.5; }
   #friends[aria-busy="true"] button:not(.close) { opacity: .6; pointer-events: none; }
-  @media (max-width: 480px) { #friends .card { padding: 22px 16px; } .friend-code { font-size: 22px; } }
+  @media (max-width: 480px) { #friends .card { padding: 22px 16px; } }
 
 </style>
 </head>
@@ -257,10 +258,8 @@
       <div class="friend-actions"><button id="friendNameSave" class="secondary small">Save name</button></div>
       <label for="friendMode">New 24-hour challenge</label>
       <select id="friendMode"><option value="endless">Friends Ladder</option><option value="daily">Today's Daily Ladder</option><option value="weekly">This week's event</option></select>
-      <div class="friend-actions"><button id="friendCreate" class="small">Create challenge</button><button id="friendDemo" class="secondary small" hidden>🧪 Load mock challenge</button></div>
-      <label for="friendJoinCode">Join code or invite link</label>
-      <input id="friendJoinCode" placeholder="12-character code" autocomplete="off" spellcheck="false" maxlength="300">
-      <div class="friend-actions"><button id="friendJoin" class="secondary small">Open invite</button></div>
+      <div class="friend-actions"><button id="friendCreate" class="small">Create challenge</button></div>
+      <p class="friend-note">Joining a friend? Tap their invite link or scan their QR code to open the challenge here.</p>
       <h3>My challenges</h3>
     </div>
     <div id="friendDetail"></div>
@@ -1437,7 +1436,7 @@ if (typeof document !== 'undefined') (function boot() {
       if (!health || health.ok !== true) throw new Error('Unexpected leaderboard response');
       if (Number.isFinite(health.time)) serverTimeOffset = health.time - Date.now();
       online = 'online';
-      friendSupported = health.challenges === true; friendDemo = health.challengeDemo === true;
+      friendSupported = health.challenges === true;
     }
     catch (e) { online = apiExplicit ? 'offline' : 'off'; } // a guessed same-origin server that isn't there is just "no server"
     refreshMenu();
@@ -1846,11 +1845,11 @@ if (typeof document !== 'undefined') (function boot() {
   }
 
   // ---------- tracked friend challenges ----------
-  let friendSupported = false, friendDemo = false, friendDetail = null, friendRequest = 0;
+  let friendSupported = false, friendDetail = null, friendRequest = 0;
   let friendBusy = false, friendSyncing = null;
   let friendPending = store.get('rtb_friend_pending', []);
   if (!Array.isArray(friendPending)) friendPending = [];
-  const incomingFriend = /(?:^#|&)c=([A-Fa-f0-9]{12})(?:&|$)/.exec(location.hash);
+  const incomingFriend = /^\/challenge\/([A-Fa-f0-9]{12})$/.exec(location.pathname) || /(?:^#|&)c=([A-Fa-f0-9]{12})(?:&|$)/.exec(location.hash);
   function friendMessage(text) { $('friendStatus').textContent = text; }
   function friendTime(c) {
     if (c.status === 'finished') return 'Finished';
@@ -1859,8 +1858,7 @@ if (typeof document !== 'undefined') (function boot() {
     return mins ? Math.floor(mins / 60) + 'h ' + mins % 60 + 'm left' : 'Finishing…';
   }
   function friendUrl(code) {
-    const base = androidApp ? (apiBase || androidApp.shareBaseUrl()) : location.origin + location.pathname;
-    return base.replace(/#.*$/, '') + '#c=' + code;
+    return new URL('/challenge/' + code, apiBase || (androidApp ? androidApp.shareBaseUrl() : location.origin)).href;
   }
   function friendEl(tag, text, cls) { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (cls) el.className = cls; return el; }
   async function friendAction(fn) {
@@ -1878,7 +1876,7 @@ if (typeof document !== 'undefined') (function boot() {
   async function loadFriends() {
     const request = ++friendRequest; friendDetail = null;
     $('friendDetail').replaceChildren(); $('friendList').replaceChildren();
-    $('friendTools').hidden = false; $('friendDemo').hidden = !friendDemo;
+    $('friendTools').hidden = false;
     for (const el of $('friendTools').querySelectorAll('input, select, button')) el.disabled = true;
     friendMessage('Loading challenges…');
     try {
@@ -1887,14 +1885,13 @@ if (typeof document !== 'undefined') (function boot() {
       const d = await api('GET', '/api/challenges', null, true);
       if (request !== friendRequest || panel !== 'friends') return;
       $('friendName').value = profile.name;
-      friendMessage(friendDemo ? 'TEST SITE · Mock opponents are labeled. Test scores stay here.' : 'Same ladder. No upgrades. Best height wins.');
-      $('friendDemo').hidden = !friendDemo;
-      if (!d.challenges.length) $('friendList').append(friendEl('p', 'No challenges yet. Start one or join a friend’s code.'));
+      friendMessage('Same ladder. No upgrades. Best height wins.');
+      if (!d.challenges.length) $('friendList').append(friendEl('p', 'No challenges yet. Start one or tap a friend’s invite link.'));
       for (const c of d.challenges) {
         const item = friendEl('div', undefined, 'friend-item');
         const leader = c.entries.find(e => e.height !== null);
-        item.append(friendEl('strong', (c.mock ? '🧪 ' : '') + c.title), friendEl('p', friendTime(c) + ' · ' + c.entries.length + ' players' + (leader ? ' · ' + leader.name + ' ' + leader.height.toFixed(2) + 'm' : ' · Set the first score')),
-          friendButton('Open ' + c.code, () => openFriend(c.code)));
+        item.append(friendEl('strong', c.title), friendEl('p', friendTime(c) + ' · ' + c.entries.length + ' players' + (leader ? ' · ' + leader.name + ' ' + leader.height.toFixed(2) + 'm' : ' · Set the first score')),
+          friendButton('Open challenge', () => openFriend(c.code)));
         $('friendList').append(item);
       }
     } catch (e) { if (request === friendRequest) friendMessage(e.message); }
@@ -1912,26 +1909,45 @@ if (typeof document !== 'undefined') (function boot() {
     const box = $('friendDetail'); box.replaceChildren();
     const creator = c.entries.find(e => e.creator);
     const leader = c.entries.find(e => e.height !== null);
-    friendMessage(c.mock ? '🧪 MOCK CHALLENGE · Opponents use scripted, verified runs.' : 'Challenge from ' + (creator ? creator.name : 'a friend'));
+    friendMessage('Challenge from ' + (creator ? creator.name : 'a friend'));
     box.append(friendEl('h3', c.title), friendEl('p', friendTime(c) + ' · No upgrades · Unlimited retries', 'friend-rules'));
-    const code = friendEl('div', c.code, 'friend-code'); code.setAttribute('aria-label', 'Join code'); box.append(code);
-    const link = friendEl('input'); link.readOnly = true; link.value = friendUrl(c.code); link.setAttribute('aria-label', 'Challenge link'); link.onclick = () => link.select(); box.append(link);
+    const url = friendUrl(c.code);
+    const invite = friendEl('details', undefined, 'friend-invite');
+    invite.append(friendEl('summary', 'Invite a friend'));
+    invite.append(friendEl('p', 'Scan with a phone camera to join. No code to type.'));
+    const qr = friendEl('img'); qr.className = 'friend-qr'; qr.alt = 'Scan to open this challenge'; qr.width = 220; qr.height = 220;
+    qr.src = url + '/qr.svg'; qr.onerror = () => { qr.hidden = true; invite.append(friendEl('p', 'QR unavailable. Use one of the invite options below.')); };
+    invite.append(qr);
+    const shareText = (profile ? profile.name : 'A friend') + ' challenged you on Raising the Bar. ' + (leader ? 'Beat ' + leader.height.toFixed(2) + 'm! ' : '') + 'Tap to join.';
+    const message = shareText + ' ' + url;
+    const destinations = friendEl('div', undefined, 'friend-actions');
+    for (const [label, href] of [
+      ['WhatsApp', 'https://wa.me/?text=' + encodeURIComponent(message)],
+      ['Text message', 'sms:?body=' + encodeURIComponent(message)],
+      ['Email invite', 'mailto:?subject=' + encodeURIComponent('Challenge me on Raising the Bar') + '&body=' + encodeURIComponent(message)],
+    ]) { const a = friendEl('a', label); a.href = href; if (href.startsWith('https:')) { a.target = '_blank'; a.rel = 'noopener noreferrer'; } destinations.append(a); }
+    invite.append(destinations);
+    const openLink = friendEl('a', 'Open invite link'); openLink.href = url; openLink.target = '_blank'; openLink.rel = 'noopener noreferrer'; invite.append(openLink);
     const actions = friendEl('div', undefined, 'friend-actions');
-    actions.append(friendButton('Share invite', async () => {
-      const text = (profile ? profile.name : 'A friend') + ' challenged you on Raising the Bar. ' + (leader ? 'Beat ' + leader.height.toFixed(2) + 'm! ' : '') + 'Join code: ' + c.code;
-      const url = friendUrl(c.code);
-      if (androidApp) androidApp.share(text, url);
-      else if (navigator.share) { try { await navigator.share({ title: 'Challenge your friends', text, url }); } catch (e) { if (e.name !== 'AbortError') throw e; } }
-      else { try { await navigator.clipboard.writeText(text + ' ' + url); } catch { link.focus(); link.select(); friendMessage('Select and copy the challenge link above.'); return; } }
-      friendMessage('Invite ready. Anyone with this code can join.');
-    }));
+    // Call native sharing directly in the click gesture: awaiting profile/network first can
+    // consume transient activation on mobile and prevent the share sheet from opening.
+    actions.append(btn('Share invite', async () => {
+      if (androidApp) { androidApp.share(shareText, url); return; }
+      if (navigator.share) {
+        try { await navigator.share({ title: 'Challenge your friends', text: shareText, url }); return; }
+        catch (e) { if (e.name === 'AbortError') return; }
+      }
+      invite.open = true; invite.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      friendMessage('Choose a messaging app below, or have your friend scan the QR code.');
+    }, 'secondary small'));
+    actions.append(btn('Show QR code', () => { invite.open = true; invite.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, 'secondary small'));
     if (c.status === 'active') actions.append(friendButton(c.joined ? (leader ? 'Race the leader' : 'Set your score') : 'Join & play', async () => {
       const d = c.joined ? await api('GET', '/api/challenges/' + c.code, null, true) : await api('POST', '/api/challenges/' + c.code + '/join', {}, true);
       if (d.status !== 'active') { renderFriend(d); throw new Error('This challenge has ended. Start a rematch.'); }
       playFriend(d);
     }));
     if (c.joined) actions.append(friendButton('Rematch', async () => { const d = await api('POST', '/api/challenges/' + c.code + '/rematch', {}, true); friendDetail = d; renderFriend(d); }));
-    actions.append(friendButton('Refresh', () => openFriend(c.code)), friendButton('My challenges', loadFriends)); box.append(actions);
+    actions.append(friendButton('Refresh', () => openFriend(c.code)), friendButton('My challenges', loadFriends)); box.append(actions, invite);
     if (c.status === 'finished') {
       const winners = c.entries.filter(e => e.rank === 1).map(e => e.name);
       box.append(friendEl('p', winners.length ? (winners.length > 1 ? 'Tie: ' : 'Winner: ') + winners.join(' & ') : 'No scores submitted. Try a rematch.', 'friend-winner'));
@@ -1945,13 +1961,9 @@ if (typeof document !== 'undefined') (function boot() {
     }
     box.append(list);
     box.append(friendEl('p', 'Scores are verified from replays. Equal heights share a rank. Invite links can be forwarded.', 'friend-note'));
-    for (const next of c.rematches) box.append(friendButton('Open rematch ' + next, () => openFriend(next)));
-    if (friendDemo && c.mock && c.owner && c.status === 'active') {
-      const test = friendEl('div', undefined, 'friend-test'); test.append(friendEl('strong', 'Test controls'),
-        friendButton('Mock friend takes a turn', async () => { const d = await api('POST', '/api/challenges/' + c.code + '/mock-turn', {}, true); friendDetail = d; renderFriend(d); }),
-        friendButton('Finish mock challenge', async () => { const d = await api('POST', '/api/challenges/' + c.code + '/finish', {}, true); friendDetail = d; renderFriend(d); })); box.append(test);
-    }
+    for (const next of c.rematches) box.append(friendButton('Open rematch', () => openFriend(next)));
   }
+
   function playFriend(c) {
     const target = c.entries.find(e => e.replay);
     closePanel();
@@ -1995,14 +2007,7 @@ if (typeof document !== 'undefined') (function boot() {
   }
   $('friendsBtn').onclick = showFriendPanel;
   $('friendCreate').onclick = () => friendAction(async () => { const c = await api('POST', '/api/challenges', { kind: $('friendMode').value }, true); ++friendRequest; friendDetail = c; renderFriend(c); });
-  $('friendJoin').onclick = () => friendAction(async () => {
-    const raw = $('friendJoinCode').value.trim();
-    const match = /(?:#c=)?([A-Fa-f0-9]{12})$/.exec(raw);
-    if (!match) throw new Error('Enter the 12-character join code or challenge link.');
-    await openFriend(match[1].toUpperCase());
-  });
   $('friendNameSave').onclick = () => friendAction(async () => { const me = await api('PATCH', '/api/me', { name: $('friendName').value }, true); adoptProfile(profile.token, me); friendMessage('Playing as ' + me.name); });
-  $('friendDemo').onclick = () => friendAction(async () => { const c = await api('POST', '/api/challenges/demo', {}, true); ++friendRequest; friendDetail = c; renderFriend(c); });
   $('friendRetryUploads').onclick = () => friendAction(async () => {
     const r = await flushFriendRuns();
     const failed = Object.values(r).find(x => x.error || x.pending);
@@ -2015,7 +2020,7 @@ if (typeof document !== 'undefined') (function boot() {
   });
 
   // ---------- replay links ----------
-  function replayUrl(code) { return (androidApp ? androidApp.shareBaseUrl() : location.href.split('#')[0]) + '#r=' + code; }
+  function replayUrl(code) { return (androidApp ? androidApp.shareBaseUrl() : location.pathname.startsWith('/challenge/') ? location.origin + '/' : location.href.split('#')[0]) + '#r=' + code; }
   async function shareRun(r, height) {
     const code = encodeReplay(r), url = replayUrl(code);
     const where = r.kind === 'weekly' ? weeklyEvent(r.day).name + ' Week' : r.kind === 'daily' ? 'Daily Ladder #' + r.day : 'Raising the Bar';
@@ -2075,7 +2080,7 @@ if (typeof document !== 'undefined') (function boot() {
   }
   function modeLabel() {
     if (!run) return '';
-    if (run.friendCode) return 'FRIEND CHALLENGE · ' + run.friendCode;
+    if (run.friendCode) return 'FRIEND CHALLENGE';
     if (rec && rec.kind === 'weekly') return weeklyEvent(rec.day).name.toUpperCase() + ' WEEK';
     if (run.kind === 'daily') return 'DAILY LADDER #' + run.day;
     if (run.kind === 'challenge') return 'GHOST RACE vs ' + run.ghostName;

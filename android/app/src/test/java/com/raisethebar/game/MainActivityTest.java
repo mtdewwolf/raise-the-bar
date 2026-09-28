@@ -21,6 +21,10 @@ public class MainActivityTest {
     @Config(sdk = 35)
     public void opensFriendCodesAndLegacyReplayLinks() {
         String base = "https://example.com/";
+        Intent direct = new Intent(Intent.ACTION_VIEW, Uri.parse(base + "challenge/ABCDEF123456?from=text"));
+        assertTrue(MainActivity.gameUrlFor(direct).endsWith("#c=ABCDEF123456"));
+        Intent badPath = new Intent(Intent.ACTION_VIEW, Uri.parse(base + "challenge/not-a-challenge"));
+        assertFalse(MainActivity.gameUrlFor(badPath).contains("#"));
         Intent friend = new Intent(Intent.ACTION_VIEW, Uri.parse(base + "#c=ABCDEF123456"));
         assertTrue(MainActivity.gameUrlFor(friend).endsWith("#c=ABCDEF123456"));
         Intent replay = new Intent(Intent.ACTION_VIEW, Uri.parse(base + "#r=ABC_xyz-123"));

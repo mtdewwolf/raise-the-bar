@@ -89,22 +89,12 @@ test('challenge validation rejects forged settings, upgrades, wrong ladder, unfi
   assert.equal(fromRun.status, 200); assert.ok(fromRun.body.entries[0].height > 0);
 }));
 
-test('mock tools are opt-in, isolated, playable, and restricted to their creator', () => server(async (call, player) => {
-  const owner = await player('Tester'), other = await player('Other');
-  assert.equal((await call('GET', '/api/health')).body.challengeDemo, true);
-  const c = (await call('POST', '/api/challenges/demo', {}, owner)).body;
-  assert.equal(c.mock, true); assert.equal(c.entries.length, 3);
-  for (const e of c.entries.filter(e => e.replay)) assert.equal(verifyReplay(RTB, e.replay).height, e.height);
-  const path = '/api/challenges/' + c.code;
-  await call('POST', path + '/join', {}, other);
-  assert.equal((await call('POST', path + '/finish', {}, other)).status, 403);
-  assert.equal((await call('POST', path + '/mock-turn', {}, owner)).body.entries.length, 5);
-  assert.equal((await call('POST', path + '/finish', {}, owner)).body.status, 'finished');
-  assert.equal((await call('GET', '/api/leaderboard')).body.total, 0);
-}, { demo: true }));
-
-test('mock endpoints are absent by default', () => server(async (call, player) => {
+test('mock endpoints cannot be enabled', () => server(async (call, player) => {
   const token = await player('No Mocks');
-  assert.equal((await call('GET', '/api/health')).body.challengeDemo, false);
+  assert.equal((await call('GET', '/api/health')).body.challengeDemo, undefined);
   assert.equal((await call('POST', '/api/challenges/demo', {}, token)).status, 404);
-}));
+  const c = (await call('POST', '/api/challenges', {}, token)).body;
+  assert.equal((await call('POST', '/api/challenges/' + c.code + '/mock-turn', {}, token)).status, 404);
+  assert.equal((await call('POST', '/api/challenges/' + c.code + '/finish', {}, token)).status, 404);
+  assert.equal(c.entries.length, 1);
+}, { demo: true }));

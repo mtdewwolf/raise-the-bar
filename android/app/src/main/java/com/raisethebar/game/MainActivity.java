@@ -149,6 +149,10 @@ public class MainActivity extends Activity {
 
     private static String replayCode(Intent intent) {
         if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null) return null;
+        String path = intent.getData().getPath();
+        if (path != null && path.matches("/challenge/[A-Fa-f0-9]{12}")) {
+            return "c=" + path.substring("/challenge/".length());
+        }
         String fragment = intent.getData().getFragment();
         if (fragment == null) return null;
         Matcher m = REPLAY_CODE.matcher(fragment);
