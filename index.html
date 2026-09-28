@@ -125,6 +125,24 @@
   .achcard .an { font-weight: 900; font-size: 15px; }
   .achcard .ad { font-size: 12px; opacity: .8; }
   .achcard.locked { background: #eee7da; opacity: .6; }
+  .achcard.item { cursor: pointer; }
+  .achcard.item.on { background: #fff3c4; box-shadow: 0 0 0 3px var(--accent) inset; }
+  .achcard.item.locked { cursor: default; }
+  .coins { font-weight: 900; font-size: 16px; color: #8a6400; min-height: 1.2em; margin-top: 2px; }
+  .wallet { text-align: center; font-size: 26px; font-weight: 900; margin: -4px 0 10px; }
+  .shoplist { display: flex; flex-direction: column; gap: 8px; max-height: 56vh; overflow-y: auto; margin-bottom: 8px; }
+  .uprow { display: flex; align-items: center; gap: 10px; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 10px; background: #fff; }
+  .uprow .ic { font-size: 30px; }
+  .uprow .info { flex: 1; min-width: 0; }
+  .uprow .nm { font-weight: 900; font-size: 16px; }
+  .uprow .ds { font-size: 12px; opacity: .8; }
+  .pips { display: flex; gap: 4px; margin-top: 4px; }
+  .pips i { width: 16px; height: 8px; border-radius: 4px; background: #e3d9c6; border: 2px solid var(--ink); }
+  .pips i.on { background: var(--accent); }
+  .uprow button { font-size: 14px; padding: 7px 10px; margin: 0; white-space: nowrap; box-shadow: 0 3px 0 var(--ink); }
+  .uprow button:disabled { background: #cfc6b4; cursor: default; }
+  .preview { display: block; width: 100%; height: 190px; border: 3px solid var(--ink); border-radius: 12px; margin-bottom: 10px; background: #7cc8ff; }
+  #lockerTabs { flex-wrap: wrap; }
   .achcard.locked .ic { filter: grayscale(1); }
   .touchpads { display: flex; gap: 10px; justify-content: center; margin: 0 auto 12px; max-width: 360px; }
   .touchpads div { flex: 1; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 6px; font-weight: 900; font-size: 15px; line-height: 1.25; }
@@ -177,6 +195,8 @@
     <div class="menurow">
       <button id="lbBtn" class="secondary small">🏆 Leaderboards</button>
       <button id="achBtn" class="secondary small">🏅 Achievements <span id="achCount"></span></button>
+      <button id="lockerBtn" class="secondary small">👕 Locker</button>
+      <button id="shopBtn" class="secondary small">🛒 Upgrades <span id="coinCount"></span></button>
     </div>
     <div id="profileLine" class="profile"></div>
     <button id="bloodBtn" class="secondary toggle"></button>
@@ -197,6 +217,7 @@
     </div>
     <div class="vs" id="oVs"></div>
     <div class="rank" id="oRank"></div>
+    <div class="coins" id="oCoins"></div>
     <div class="quip" id="oQuip"></div>
     <div class="cause" id="oCause"></div>
     <div id="oMain"></div>
@@ -222,6 +243,27 @@
         <div class="fine">Keep the code private: anyone with it can play as you.</div>
       </div>
     </details>
+  </div>
+</div>
+
+<div id="shop" class="overlay panel hidden">
+  <div class="card wide">
+    <button class="close" data-close aria-label="Close">✕</button>
+    <h2>🛒 Upgrades</h2>
+    <div class="wallet"><span id="shopCoins">0</span> 🪙 Chalk</div>
+    <div id="shopList" class="shoplist"></div>
+    <div class="lbstatus">Earn Chalk on every run: 10 per metre climbed and 2 per bar. The Daily Ladder is always played without upgrades, so it stays a pure skill contest.</div>
+  </div>
+</div>
+
+<div id="locker" class="overlay panel hidden">
+  <div class="card wide">
+    <button class="close" data-close aria-label="Close">✕</button>
+    <h2>👕 Locker</h2>
+    <canvas id="lockerPreview" class="preview"></canvas>
+    <div class="tabs" id="lockerTabs"></div>
+    <div id="lockerGrid" class="achgrid"></div>
+    <div class="lbstatus" id="lockerHint">Unlock more by earning achievements. Your look shows on your ghost too.</div>
   </div>
 </div>
 
@@ -324,18 +366,49 @@ function mkHand(side) {
   };
 }
 
+// ---------------- Zones ----------------
+// The ladder changes as you climb. Everything here is a pure function of height, time and the
+// ladder seed, so replays, ghosts and server verification stay exact.
+const ZONE_H0 = 2.05; // world y of the head at the start: height = y - ZONE_H0
+const ZONES = [
+  { id: 'gym', name: 'The Gym', from: 0, tip: '' },
+  { id: 'roof', name: 'The Rooftop', from: 15, tip: 'Mind the wind!' },
+  { id: 'clouds', name: 'The Clouds', from: 40, tip: 'Wobbly bars. Icy bars. Good luck.' },
+  { id: 'space', name: 'Space', from: 80, tip: 'Low gravity: hop gently!' },
+];
+function zoneAt(h) { let z = 0; for (let i = 1; i < ZONES.length; i++) if (h >= ZONES[i].from) z = i; return z; }
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+// how windy it is at a height (0..1): builds up on the rooftop, calmer in the clouds, none in space
+function windAmount(h) { return (0.35 + 0.65 * smoothstep(20, 34, h)) * smoothstep(15, 17, h) * (1 - 0.45 * smoothstep(40, 46, h)) * (1 - smoothstep(78, 82, h)); }
+// gravity multiplier: normal until space, then floaty
+function gravityScale(h) { return 1 - 0.58 * smoothstep(80, 88, h); }
+// wind acceleration (m/s^2, +x = right) at time t: a prevailing direction plus rolling gusts
+function windAccel(g, h) {
+  const a = windAmount(h);
+  if (a <= 0) return 0;
+  const w = g.windP, t = g.t;
+  const gust = dsin(0.17 * t + w[2]); const g4 = gust > 0 ? gust * gust * gust * gust : 0;
+  return a * (w[3] * 0.4 + 0.7 * dsin(0.55 * t + w[0]) + 0.3 * dsin(1.37 * t + w[1]) + w[3] * 1.1 * g4);
+}
+
 // ---------------- Bars ----------------
 function addBar(g) {
   const n = g.bars.length, r = g.rng;
   if (n === 0) {
-    g.bars.push({ i: 0, y: CFG.START_BAR_Y, x0: -1.25, x1: 1.25, o: 0, vo: 0, f: 0, hit: 0 });
+    g.bars.push({ i: 0, y: CFG.START_BAR_Y, x0: -1.25, x1: 1.25, o: 0, vo: 0, f: 0, hit: 0, type: 'normal', ox: 0, vox: 0, fx: 0 });
     return;
   }
   const prev = g.bars[n - 1];
   const d = clamp((n - 4) / 55, 0, 1); // difficulty ramps over ~55 bars
-  let gap = 0.60 + 0.30 * d + r() * (0.05 + 0.08 * d);
-  if (n > 8 && r() < 0.05 + 0.13 * d) gap += 0.08 + 0.05 * d; // occasional wider gap
-  if (n <= 4) gap = 0.60;
+  // A perfectly timed both-hands hop reaches ~0.84m above the bar (sloppy ones ~0.65m), so ordinary
+  // gaps stay hoppable low down; from the Clouds up they widen, which is where upgrades pay off.
+  let gap = 0.55 + 0.07 * d + r() * (0.01 + 0.02 * d);
+  if (n > 8 && r() < 0.04 + 0.08 * d) gap += 0.07; // occasional stretch: needs a swing or hand-over-hand
+  if (n <= 4) gap = 0.55;
+  const hNew = prev.y + gap - ZONE_H0;
+  gap += 0.08 * smoothstep(40, 52, hNew);
+  // hops go much higher in low gravity, so space spreads the bars out
+  gap *= 1 + 0.25 * (1 - gravityScale(hNew)) / 0.58;
   const len = n <= 4 ? 2.5 : clamp(lerp(2.3, 1.0, d) + (r() - 0.5) * 0.5, 0.9, 2.6);
   const pc = (prev.x0 + prev.x1) / 2, plen = prev.x1 - prev.x0;
   const maxOff = n <= 4 ? 0 : 0.06 + 0.5 * d;
@@ -343,12 +416,46 @@ function addBar(g) {
   const overlapSlack = plen / 2 + len / 2 - 0.75; // keep >= 0.75m of horizontal overlap
   c = clamp(c, pc - overlapSlack, pc + overlapSlack);
   c = clamp(c, -1.6 + len / 2, 1.6 - len / 2);
-  g.bars.push({ i: n, y: prev.y + gap, x0: c - len / 2, x1: c + len / 2, o: 0, vo: 0, f: 0, hit: 0 });
+  // bar types by zone: wobbly bars swing when you grab them, icy bars drain your grip
+  const y = prev.y + gap, z = zoneAt(y - ZONE_H0), roll = r();
+  let type = 'normal';
+  if (z === 1 && roll < 0.12) type = 'wobbly';
+  else if (z === 2) type = roll < 0.3 ? 'wobbly' : roll < 0.58 ? 'icy' : 'normal';
+  else if (z === 3) type = roll < 0.2 ? 'wobbly' : roll < 0.35 ? 'icy' : 'normal';
+  if (prev.type === 'icy' && type === 'icy') type = 'normal'; // never two icy bars in a row
+  g.bars.push({ i: n, y, x0: c - len / 2, x1: c + len / 2, o: 0, vo: 0, f: 0, hit: 0, type, ox: 0, vox: 0, fx: 0 });
 }
 function genBars(g, upto) { while (g.bars[g.bars.length - 1].y < upto) addBar(g); }
 
+// ---------------- Upgrades ----------------
+// Bought with coins earned from runs. Levels are part of every replay, so the server re-simulates
+// runs with the same upgrades and checks the player really earned enough coins to own them.
+const UPGRADES = [
+  { id: 'pull', icon: '💪', name: 'Explosive Pull', desc: '+8% pulling strength per level' },
+  { id: 'spring', icon: '🦘', name: 'Spring Hop', desc: 'Extra upward kick when you let go with both hands' },
+  { id: 'stam', icon: '🫁', name: 'Endurance', desc: '-8% stamina drain per level' },
+  { id: 'grip', icon: '🧤', name: 'Chalk Grip', desc: '+10% grip strength and safer fast catches' },
+  { id: 'rec', icon: '🔋', name: 'Recovery', desc: '+15% stamina recovery while hanging' },
+];
+const UPGRADE_MAX = 5;
+const UPGRADE_COST = [80, 150, 280, 500, 900]; // cost of level 1..5 (integers, identical everywhere)
+function cleanUpgrades(u) {
+  const out = {};
+  for (const { id } of UPGRADES) { const v = (u && u[id]) | 0; out[id] = v < 0 ? 0 : v > UPGRADE_MAX ? UPGRADE_MAX : v; }
+  return out;
+}
+// total coins needed to own a set of levels
+function upgradesCost(u) {
+  let c = 0; const lv = cleanUpgrades(u);
+  for (const { id } of UPGRADES) for (let i = 0; i < lv[id]; i++) c += UPGRADE_COST[i];
+  return c;
+}
+const noUpgrades = (u) => UPGRADES.every(({ id }) => !(u && u[id]));
+// coins a finished run pays out
+function runCoins(g) { return Math.floor(g.maxHeight * 10 + g.maxBar * 2); }
+
 // ---------------- Game ----------------
-function newGame(seed, state) {
+function newGame(seed, state, upgrades) {
   const g = {
     seed, rng: mulberry32(seed), trng: mulberry32(seed ^ 0x9e3779b9), bars: [], state: state || 'play', t: 0,
     body: makeBody(CFG.START_BAR_Y), hands: [mkHand(0), mkHand(1)],
@@ -357,8 +464,10 @@ function newGame(seed, state) {
     legOff: 0, tuck: 0, trem: { x: 0, y: 0 },
     height: 0, maxHeight: 0, maxBar: 0, bonus: 0, hops: 0, catches: 0,
     events: [], deathT: 0, deathCause: '', floorHit: false, lastSlipExhausted: false,
-    nextMilestone: 5, pullTime: 0, n: 0,
+    nextMilestone: 5, pullTime: 0, n: 0, zone: 0, wind: 0, grav: 1,
   };
+  { const wr = mulberry32(seed ^ 0x5bd1e995); g.windP = [wr() * 6.283, wr() * 6.283, wr() * 6.283, wr() < 0.5 ? -1 : 1]; }
+  g.up = cleanUpgrades(upgrades);
   addBar(g); genBars(g, 14);
   g.hands[0].grip = { bar: g.bars[0], x: -0.27 };
   g.hands[1].grip = { bar: g.bars[0], x: 0.27 };
@@ -382,15 +491,23 @@ function release(g, h, isThrow) {
     h.throwT = g.t;
     const other = g.hands[1 - h.side];
     const hop = !other.grip && g.t - other.throwT < 0.18;
-    if (hop) { g.stam -= 3; g.hops++; }
+    if (hop) {
+      g.stam -= 3; g.hops++;
+      // Spring Hop: a whole-body kick upward on a two-handed release
+      const kick = 0.22 * g.up.spring * CFG.DT;
+      if (kick) for (const p of P) p.py -= kick;
+    }
     g.events.push({ type: 'throw', side: h.side, hop, x: hp.x, y: hp.y });
   }
 }
 
 function grab(g, h, b, x, speed, vy) {
   const P = g.body.pts, hp = P[h.idx];
-  h.grip = { bar: b, x }; h.graceT = 0.2; h.holdT = 0; h.reachT = 0;
-  hp.x = hp.px = x; hp.y = hp.py = b.y + b.o;
+  const hvx = (hp.x - hp.px) / CFG.DT;
+  // a hard catch needs a moment for the arms to absorb it before the grip can tear loose
+  h.grip = { bar: b, x }; h.graceT = 0.2 + Math.min(0.35, speed * 0.06); h.holdT = 0; h.reachT = 0;
+  hp.x = hp.px = x + b.ox; hp.y = hp.py = b.y + b.o;
+  if (b.type === 'wobbly') b.vox += clamp(hvx, -4, 4) * 0.35; // your momentum sets the bar swinging
   b.vo -= Math.min(speed, 6) * 0.25; b.hit = 1;
   g.hangT = 0; g.catches++;
   let newBar = false, skipped = 0;
@@ -402,7 +519,7 @@ function grab(g, h, b, x, speed, vy) {
   }
   const other = g.hands[1 - h.side];
   g.events.push({ type: 'catch', side: h.side, x, y: b.y, speed, vy: vy || 0, newBar, bar: b.i,
-    airT: g.noGripT, alone: !other.grip, stam: g.stam, skipped });
+    airT: g.noGripT, alone: !other.grip, stam: g.stam, skipped, btype: b.type });
 }
 
 function die(g, cause) {
@@ -412,10 +529,17 @@ function die(g, cause) {
   g.events.push({ type: 'die', cause });
 }
 
+// An arm can launch its hand when it's pulled in, or when a strong pull has carried the shoulder up
+// to (or past) the bar, where the arm straightens again above the hand.
+function armLoaded(P, h) { return dist(P[h.sh], P[h.idx]) < CFG.THROW_DIST || P[h.sh].y > P[h.idx].y - 0.05; }
 function rot(vx, vy, a) { const c = dcos(a), s = dsin(a); return [vx * c - vy * s, vx * s + vy * c]; }
 
 function stepSim(g, dt) {
-  const B = g.body, P = B.pts, H = g.hands, Gv = CFG.G;
+  const B = g.body, P = B.pts, H = g.hands;
+  const hNow = P[HEAD].y - ZONE_H0;
+  g.grav = g.state === 'menu' ? 1 : gravityScale(hNow);
+  g.wind = g.state === 'menu' ? 0 : windAccel(g, hNow);
+  const Gv = CFG.G * g.grav, Wa = g.wind;
   const alive = g.state === 'play' || g.state === 'menu';
   const playing = g.state === 'play';
   g.t += dt; g.n++;
@@ -432,7 +556,7 @@ function stepSim(g, dt) {
     }
     if (h.key && h.grip) h.holdT += dt;
     if (!h.key && h.prevKey) {
-      if (h.grip && h.holdT >= CFG.THROW_HOLD && dist(P[h.sh], P[h.idx]) < CFG.THROW_DIST) release(g, h, true);
+      if (h.grip && h.holdT >= CFG.THROW_HOLD && armLoaded(P, h)) release(g, h, true);
       h.holdT = 0;
     }
     h.prevKey = h.key;
@@ -440,7 +564,7 @@ function stepSim(g, dt) {
   }
 
   // ---- forces
-  for (const p of P) { p.fx = 0; p.fy = -Gv * p.m; }
+  for (const p of P) { p.fx = Wa * p.m; p.fy = -Gv * p.m; }
 
   // arms
   for (const h of H) {
@@ -449,7 +573,7 @@ function stepSim(g, dt) {
     h.pullF = 0;
     if (!alive) continue;
     if (h.grip && h.key) {
-      const fmax = CFG.PULL_MAX * (both ? CFG.BOTH_BONUS : 1) * strength * WEIGHT;
+      const fmax = CFG.PULL_MAX * (both ? CFG.BOTH_BONUS : 1) * strength * WEIGHT * (1 + 0.08 * g.up.pull);
       const f = Math.min(CFG.PULL_K * Math.max(0, d - CFG.PULL_TARGET), fmax);
       sh.fx += dx / d * f; sh.fy += dy / d * f;
       h.pullF = f;
@@ -531,7 +655,7 @@ function stepSim(g, dt) {
   // ---- constraints
   const pinned = [];
   for (const h of H) if (h.grip) {
-    const hp = P[h.idx]; hp.x = h.grip.x; hp.y = h.grip.bar.y + h.grip.bar.o; pinned[h.idx] = true;
+    const hp = P[h.idx]; hp.x = h.grip.x + h.grip.bar.ox; hp.y = h.grip.bar.y + h.grip.bar.o; pinned[h.idx] = true;
   }
   const W = (i) => (pinned[i] ? 0 : P[i].im);
   const sticks = B.sticks;
@@ -607,33 +731,43 @@ function stepSim(g, dt) {
   cvx /= TOTAL_M * dt; cvy /= TOTAL_M * dt;
   const ax = (cvx - g.comV.x) / dt, ay = (cvy - g.comV.y) / dt;
   g.comV.x = cvx; g.comV.y = cvy;
-  const Fx = TOTAL_M * ax, Fy = TOTAL_M * (ay + Gv);
+  const Fx = TOTAL_M * (ax - Wa), Fy = TOTAL_M * (ay + Gv);
   g.Fs.x += (Fx - g.Fs.x) * 0.25; g.Fs.y += (Fy - g.Fs.y) * 0.25;
 
   const nG = (H[0].grip ? 1 : 0) + (H[1].grip ? 1 : 0);
   if (nG > 0) {
     const inst = Math.min(hyp(Fx, Fy) / WEIGHT / nG, 3.2);
-    let gripMax = 1.0 + 2.2 * s - g.exhaustT * 0.35;
+    const gripBase = 1.0 + 2.2 * s - g.exhaustT * 0.35;
     for (const h of H) {
       if (!h.grip) continue;
       h.load += (inst - h.load) * Math.min(1, dt / 0.12);
       h.grip.bar.f -= clamp(g.Fs.y / nG, -3 * WEIGHT, 3 * WEIGHT);
+      h.grip.bar.fx -= clamp(g.Fs.x / nG, -3 * WEIGHT, 3 * WEIGHT);
+      const gripMax = gripBase * (h.grip.bar.type === 'icy' ? 0.62 : 1) * (1 + 0.1 * g.up.grip);
       if (alive && h.graceT <= 0 && h.load > gripMax) {
         const bar = h.grip.bar;
         release(g, h, false);
         h.cool = 0.25; h.exclBar = bar; h.exclT = 0.4;
         g.lastSlipExhausted = s < 0.15;
-        g.events.push({ type: 'slip', side: h.side, x: P[h.idx].x, y: P[h.idx].y, exhausted: s < 0.15 });
+        g.events.push({ type: 'slip', side: h.side, x: P[h.idx].x, y: P[h.idx].y, exhausted: s < 0.15, icy: bar.type === 'icy' });
       }
     }
   }
 
   // ---- bars: springy
   for (const b of g.bars) {
+    const wob = b.type === 'wobbly';
+    if (wob) {
+      b.fx += CFG.BAR_M * Wa * 0.6; // wobbly bars sway in the wind even when nobody's on them
+      b.vox += (b.fx - 380 * b.ox - 15 * b.vox) / CFG.BAR_M * dt;
+      b.ox = clamp(b.ox + b.vox * dt, -0.35, 0.35);
+      if (Math.abs(b.ox) === 0.35) b.vox *= -0.3;
+    }
+    b.fx = 0;
     if (b.f === 0 && Math.abs(b.o) < 1e-5 && Math.abs(b.vo) < 1e-4) { b.hit *= 0.9; continue; }
-    b.vo += (b.f - CFG.BAR_K * b.o - CFG.BAR_C * b.vo) / CFG.BAR_M * dt;
+    b.vo += (b.f - CFG.BAR_K * (wob ? 0.35 : 1) * b.o - CFG.BAR_C * (wob ? 0.5 : 1) * b.vo) / CFG.BAR_M * dt;
     b.o += b.vo * dt;
-    b.o = clamp(b.o, -0.12, 0.08);
+    b.o = wob ? clamp(b.o, -0.25, 0.12) : clamp(b.o, -0.12, 0.08);
     b.f = 0; b.hit *= 0.93;
   }
 
@@ -655,11 +789,11 @@ function stepSim(g, dt) {
         if (!crossed && !near) continue;
         const t = crossed ? s0 / (s0 - s1) : 1;
         const cx = lerp(hp.px, hp.x, t);
-        if (cx < b.x0 - 0.05 || cx > b.x1 + 0.05) continue;
+        if (cx < b.x0 + b.ox - 0.05 || cx > b.x1 + b.ox + 0.05) continue;
         // the first bars forgive sloppier catches while you learn
         const limit = (vy > 0 ? 6 : 3.2) + 4.3 * s + 2.5 * Math.max(0, 1 - b.i / 12);
         if (sp <= limit) {
-          grab(g, h, b, clamp(cx, b.x0 + 0.02, b.x1 - 0.02), sp, vy);
+          grab(g, h, b, clamp(cx - b.ox, b.x0 + 0.02, b.x1 - 0.02), sp, vy);
         } else {
           hp.py = hp.y + (hp.y - hp.py) * 0.3; // bounce off
           h.cool = 0.12; h.exclBar = b; h.exclT = 0.25;
@@ -682,7 +816,10 @@ function stepSim(g, dt) {
     else if (pulling === 1) drain += 13;
     drain += reaching * 4;
     if (nGr > 0) g.hangT += dt;
-    if (pulling === 0) {
+    const icy = (H[0].grip && H[0].grip.bar.type === 'icy' ? 1 : 0) + (H[1].grip && H[1].grip.bar.type === 'icy' ? 1 : 0);
+    drain += icy * 6;
+    if (pulling === 0 && icy) { /* no recovering while your hands freeze */ }
+    else if (pulling === 0) {
       if (nGr === 2) { const r = 15 - 1.0 * g.hangT; if (r > 0) rec += r; else drain += Math.min(-r, 5); }
       else if (nGr === 1) { const r = 3 - 1.5 * g.hangT; if (r > 0) rec += r; else drain += Math.min(-r, 8); }
       else rec += 3;
@@ -690,6 +827,7 @@ function stepSim(g, dt) {
       drain += 5; // one-armed effort is extra hard
     }
     if (g.state === 'menu') { rec = 30; drain = 0; }
+    if (g.state !== 'menu') { drain *= 1 - 0.08 * g.up.stam; rec *= 1 + 0.15 * g.up.rec; }
     g.stam += (rec * (1 - 0.35 * d) - drain * (1 + 0.8 * d)) * dt;
     g.stam = clamp(g.stam, 0, 100);
     if (g.stam <= 0.5) g.exhaustT += dt; else g.exhaustT = Math.max(0, g.exhaustT - dt * 2);
@@ -706,9 +844,11 @@ function stepSim(g, dt) {
         g.events.push({ type: 'milestone', value: g.nextMilestone });
         g.nextMilestone += 5;
       }
+      const z = zoneAt(g.maxHeight);
+      if (z > g.zone) { g.zone = z; g.events.push({ type: 'zone', zone: z }); }
       const nGr = (H[0].grip ? 1 : 0) + (H[1].grip ? 1 : 0);
       g.noGripT = nGr ? 0 : g.noGripT + dt;
-      if (g.noGripT > CFG.NO_GRIP_DEATH) die(g, g.lastSlipExhausted ? 'exhausted' : 'fall');
+      if (g.noGripT > CFG.NO_GRIP_DEATH / g.grav) die(g, g.lastSlipExhausted ? 'exhausted' : 'fall');
       else if (g.floorHit) die(g, 'floor');
       genBars(g, head.y + 12);
     }
@@ -734,21 +874,23 @@ function minDist(P, W, i, j, m) {
 
 function score(g) { return Math.round(g.maxHeight * 100 + g.bonus); }
 
-// 0 = releasing now does nothing, 1 = would let go but the body is already sinking (late),
-// 2 = would let go while still rising (the sweet spot for a hop).
+// The release cue. 2 = sweet spot: arms pulled in tight while the body is still rising fast (measured
+// to give ~90%+ of the best possible hop). 1 = late: the rise has stalled, the hop will be weak.
+// 0 = too early (or not pulling). Display only: it never changes the physics.
 function throwReady(g, h) {
   if (!h.grip || !h.key || h.holdT < CFG.THROW_HOLD) return 0;
   const P = g.body.pts;
-  if (dist(P[h.sh], P[h.idx]) >= CFG.THROW_DIST) return 0;
-  const sh = P[h.sh];
-  return (sh.y - sh.py) / CFG.DT > 0.25 ? 2 : 1;
+  if (!armLoaded(P, h)) return 0;
+  const sh = P[h.sh], hp = P[h.idx], vy = (sh.y - sh.py) / CFG.DT;
+  if (vy <= 1.5) return 1;
+  return dist(sh, hp) < 0.22 || sh.y > hp.y - 0.05 ? 2 : 0;
 }
 
 // ---------------- Replays ----------------
 // A run is fully determined by its ladder seed and the per-step S/K inputs, so a replay is
 // just the seed plus the steps where the inputs changed. Format (bytes, then base64url):
-// [version][kind][seed u32][day varint][total steps varint][changes: varint(delta*4 + bits)...]
-const REPLAY_VERSION = 1;
+// [version][kind][seed u32][day varint][total steps varint][n][n upgrade levels][changes: varint(delta*4 + bits)...]
+const REPLAY_VERSION = 2; // bump whenever the simulation changes: old replays would no longer reproduce
 function pushVarint(out, v) { while (v >= 128) { out.push((v & 127) | 128); v = Math.floor(v / 128); } out.push(v); }
 function readVarint(buf, pos) {
   let v = 0, mul = 1, b;
@@ -783,6 +925,7 @@ function encodeReplay(rec) {
   const out = [REPLAY_VERSION, rec.kind === 'daily' ? 1 : 0];
   const sd = rec.seed >>> 0; out.push(sd >>> 24, (sd >>> 16) & 255, (sd >>> 8) & 255, sd & 255);
   pushVarint(out, rec.day || 0); pushVarint(out, rec.steps);
+  const up = cleanUpgrades(rec.up); out.push(UPGRADES.length); for (const { id } of UPGRADES) out.push(up[id]);
   let last = 0;
   for (const [step, bits] of rec.changes) { pushVarint(out, (step - last) * 4 + bits); last = step; }
   return toB64(out);
@@ -794,9 +937,13 @@ function decodeReplay(str) {
   const seed = ((b[2] << 24) | (b[3] << 16) | (b[4] << 8) | b[5]) >>> 0;
   const pos = { i: 6 };
   const day = readVarint(b, pos), steps = readVarint(b, pos);
+  const nUp = b[pos.i++], upRaw = {};
+  if (!(nUp >= 0 && nUp <= 16) || pos.i + nUp > b.length) throw new Error('truncated');
+  for (let k = 0; k < nUp; k++) { const id = UPGRADES[k] && UPGRADES[k].id, v = b[pos.i++]; if (id) { if (v > UPGRADE_MAX) throw new Error('bad upgrade level'); upRaw[id] = v; } }
+  const up = cleanUpgrades(upRaw);
   const changes = []; let last = 0;
   while (pos.i < b.length) { const v = readVarint(b, pos); last += Math.floor(v / 4); changes.push([last, v & 3]); }
-  return { seed, kind, day, steps, changes };
+  return { seed, kind, day, steps, changes, up };
 }
 // Drives a game from a replay one step at a time.
 function makePlayback(rec) {
@@ -815,7 +962,7 @@ function applyPlayback(g, pb) {
 }
 // Fast-forward a whole replay without drawing it. Returns how high that run got.
 function simulateReplay(rec) {
-  const g = newGame(rec.seed, 'play'), pb = makePlayback(rec);
+  const g = newGame(rec.seed, 'play', rec.up), pb = makePlayback(rec);
   const cap = rec.steps + 600;
   while (g.n < cap && !(g.state === 'dying' && g.deathT > 0.2)) { applyPlayback(g, pb); stepSim(g, CFG.DT); g.events.length = 0; }
   return { maxHeight: g.maxHeight, bars: g.maxBar, died: g.state === 'dying' };
@@ -831,7 +978,8 @@ function dailySeed(day) {
 
 globalThis.RTB = { CFG, newGame, stepSim, score, dist, throwReady, encodeReplay, decodeReplay, makePlayback, playbackInputs,
   applyPlayback, simulateReplay,
-  dayNumber, dailySeed, HEAD, LSH, RSH, LH, RH };
+  dayNumber, dailySeed, REPLAY_VERSION, ZONES, zoneAt, UPGRADES, UPGRADE_MAX, UPGRADE_COST, cleanUpgrades, upgradesCost, noUpgrades, runCoins,
+  HEAD, LSH, RSH, LH, RH };
 // @sim-end
 
 /* =====================================================================
@@ -839,7 +987,7 @@ globalThis.RTB = { CFG, newGame, stepSim, score, dist, throwReady, encodeReplay,
    ===================================================================== */
 if (typeof document !== 'undefined') (function boot() {
   const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
+  let ctx = canvas.getContext('2d'); // swapped temporarily to draw the Locker preview
   const $ = (id) => document.getElementById(id);
   // Vh is the height of the world view: the whole screen, or the part above the hinge in tabletop mode
   let W = 0, Hh = 0, Vh = 0, dpr = 1, scale = 100, baseScale = 100, zoom = 1, safe = { t: 0, r: 0, b: 0, l: 0 };
@@ -920,6 +1068,7 @@ if (typeof document !== 'undefined') (function boot() {
     impact() { noise(0.35, 0.6, 180, 0.8); tone(80, 0.3, 'sine', 0.4, 40); },
     clank() { noise(0.05, 0.2, 2200, 4); tone(520 + Math.random() * 200, 0.15, 'triangle', 0.1); },
     milestone() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'square', 0.08, null, i * 0.08)); },
+    zone() { [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, 0.28, 'triangle', 0.09, null, i * 0.07)); noise(0.5, 0.05, 700, 0.5); },
     rewind() { noise(0.35, 0.12, 1800, 0.8); tone(220, 0.3, 'sawtooth', 0.06, 1400); },
   };
 
@@ -1040,18 +1189,19 @@ if (typeof document !== 'undefined') (function boot() {
   }
   function hideOverlays() { $('menu').classList.add('hidden'); $('over').classList.add('hidden'); }
 
-  function makeGhost(r, name) {
+  function makeGhost(r, name, lk) {
     if (!r) return null;
-    return { g: newGame(r.seed, 'play'), pb: makePlayback(r), name, max: simulateReplay(r).maxHeight };
+    return { g: newGame(r.seed, 'play', r.up), pb: makePlayback(r), name, max: simulateReplay(r).maxHeight, look: lk ? cleanLook(lk) : null };
   }
   function startRun(cfg) {
     initAudio();
     run = cfg;
-    g = newGame(cfg.seed, 'play');
-    gh = makeGhost(cfg.ghost, cfg.ghostName);
+    const up = cfg.kind === 'daily' ? {} : wallet.levels;
+    g = newGame(cfg.seed, 'play', up);
+    gh = makeGhost(cfg.ghost, cfg.ghostName, cfg.ghostLook);
     const rk = cfg.ghost ? cfg.ghost.kind : cfg.kind === 'daily' ? 'daily' : 'endless';
     const rd = cfg.ghost ? cfg.ghost.day : cfg.day || 0;
-    rec = { seed: cfg.seed, kind: rk, day: rd, steps: 0, changes: [], last: 0 };
+    rec = { seed: cfg.seed, kind: rk, day: rd, steps: 0, changes: [], last: 0, up: cleanUpgrades(up) };
     runHops = 0;
     resetFx(); mode = 'play'; hideOverlays();
     cam.y = g.body.pts[HEAD].y - 0.6;
@@ -1061,18 +1211,18 @@ if (typeof document !== 'undefined') (function boot() {
     daily = loadDaily();
     let ghost = null;
     if (daily.replay) { try { ghost = decodeReplay(daily.replay); } catch (e) { ghost = null; } }
-    startRun({ kind: 'daily', seed: dailySeed(today), day: today, ghost, ghostName: 'YOUR BEST' });
+    startRun({ kind: 'daily', seed: dailySeed(today), day: today, ghost, ghostName: 'YOUR BEST', ghostLook: look });
   }
-  function raceReplay(r, name) { startRun({ kind: 'challenge', seed: r.seed, day: r.day, ghost: r, ghostName: name }); }
+  function raceReplay(r, name, lk) { startRun({ kind: 'challenge', seed: r.seed, day: r.day, ghost: r, ghostName: name, ghostLook: lk }); }
   function retry() {
     if (!run || run.kind === 'endless') startEndless();
     else if (run.kind === 'daily') startDaily();
     else startRun(run);
   }
-  function startReplay(r, name) {
+  function startReplay(r, name, lk) {
     initAudio();
-    watching = { rec: r, name };
-    g = newGame(r.seed, 'play'); pb = makePlayback(r); gh = null;
+    watching = { rec: r, name, look: lk };
+    g = newGame(r.seed, 'play', r.up); pb = makePlayback(r); gh = null;
     resetFx(); mode = 'replay'; hideOverlays();
     cam.y = g.body.pts[HEAD].y - 0.6;
   }
@@ -1085,13 +1235,14 @@ if (typeof document !== 'undefined') (function boot() {
   function refreshMenu() {
     daily = loadDaily();
     $('dailyBtn').textContent = 'Daily Ladder #' + today;
-    $('dailyInfo').textContent = daily.best > 0 ? "Today's best: " + daily.best.toFixed(1) + 'm · race your ghost' : 'Same ladder for everyone today';
+    $('dailyInfo').textContent = (daily.best > 0 ? "Today's best: " + daily.best.toFixed(1) + 'm · race your ghost' : 'Same ladder for everyone today') + ' · no upgrades';
     if (challenge) {
       $('challenge').style.display = 'block'; $('menu').classList.add('has-challenge');
       const where = challenge.rec.kind === 'daily' ? 'Daily Ladder #' + challenge.rec.day : 'their ladder';
       $('cText').textContent = 'Someone climbed ' + challenge.max.toFixed(1) + 'm on ' + where + '. Can you beat them?';
     } else { $('challenge').style.display = 'none'; $('menu').classList.remove('has-challenge'); }
     $('achCount').textContent = unlocked.size + '/' + ACH.length;
+    $('coinCount').textContent = '· ' + coinsLeft().toLocaleString() + ' 🪙';
     $('profileLine').textContent = isOnline() ? (profile ? 'Playing as ' + profile.name : 'Online: your runs go on the leaderboards')
       : online === 'offline' ? 'Leaderboards offline: runs will upload later' : '';
   }
@@ -1150,9 +1301,25 @@ if (typeof document !== 'undefined') (function boot() {
     }
     flushRuns();
   }
-  function adoptProfile(token, me) {
+  function adoptProfile(token, me, linking) {
     profile = { token, name: me.name }; store.set('rtb_profile', profile);
     if (me.achievements) mergeAchievements(me.achievements);
+    // looks: a linked device takes the profile's look; otherwise keep a look you've customised here
+    const serverLook = me.look && Object.keys(me.look).length ? cleanLook(me.look) : null;
+    const localCustom = JSON.stringify(look) !== JSON.stringify(DEFAULT_LOOK);
+    if (serverLook && (linking || !localCustom)) { look = serverLook; store.set('rtb_look', look); }
+    else if (localCustom) syncLookSoon();
+    // upgrades: a linked device takes the profile's wallet; otherwise keep the best of both
+    if (me.upgrades) {
+      const su = cleanUpgrades(me.upgrades), se = me.earned | 0;
+      if (linking) wallet = { earned: Math.max(se, upgradesCost(su)), levels: su };
+      else {
+        const merged = {}; for (const { id } of UPGRADES) merged[id] = Math.max(su[id], wallet.levels[id]);
+        const earned = Math.max(wallet.earned, se);
+        wallet = { earned, levels: upgradesCost(merged) <= earned ? cleanUpgrades(merged) : wallet.levels };
+      }
+      store.set('rtb_wallet', wallet); syncUpgradesSoon();
+    }
     refreshMenu();
   }
   async function ensureProfile() {
@@ -1163,10 +1330,11 @@ if (typeof document !== 'undefined') (function boot() {
     return profile;
   }
   // finished runs: queued so nothing is lost offline, uploaded oldest first
-  let pending = store.get('rtb_pending', []), flushing = null;
+  // runs recorded with older physics can't be verified any more, so they're dropped from the queue
+  let pending = store.get('rtb_pending', []).filter((c) => { try { decodeReplay(c); return true; } catch (e) { return false; } }), flushing = null;
   function queueRun(code) {
     if (!pending.includes(code)) pending.push(code);
-    if (pending.length > 10) pending = pending.slice(-10);
+    if (pending.length > 60) pending = pending.slice(-60);
     store.set('rtb_pending', pending);
   }
   function flushRuns() {
@@ -1185,12 +1353,14 @@ if (typeof document !== 'undefined') (function boot() {
           pending.shift(); store.set('rtb_pending', pending);
           const r = results[code];
           if (r && !r.error) {
+            if (r.earned > wallet.earned) { wallet.earned = r.earned; store.set('rtb_wallet', wallet); }
             if ((r.alltime && r.alltime.rank <= 10) || (r.daily && r.daily.rank <= 10)) unlock('top10');
             if (r.daily && r.daily.rank === 1) unlock('daily_champ');
           }
         }
       } catch (e) { /* no profile yet (offline): keep the queue */ }
       flushing = null;
+      syncUpgradesSoon(); // now the server has seen these runs' coins
       return results;
     })();
     return flushing;
@@ -1225,8 +1395,49 @@ if (typeof document !== 'undefined') (function boot() {
     { id: 'share', icon: '📣', name: 'Trash Talker', desc: 'Share a challenge link' },
     { id: 'top10', icon: '🏆', name: 'Top Ten', desc: 'Make the top 10 on a leaderboard' },
     { id: 'daily_champ', icon: '👑', name: 'Champion of the Day', desc: "Hold #1 on a Daily Ladder" },
+    { id: 'zone_roof', icon: '🏙️', name: 'Up on the Roof', desc: 'Reach the Rooftop (15m)' },
+    { id: 'zone_clouds', icon: '☁️', name: 'Head in the Clouds', desc: 'Reach the Clouds (40m)' },
+    { id: 'zone_space', icon: '🪐', name: 'Houston, We Have a Climber', desc: 'Reach Space (80m)' },
+    { id: 'wobbly', icon: '🎪', name: 'Trapeze Artist', desc: 'Reach a new bar on a wobbly bar' },
+    { id: 'icy', icon: '🧊', name: 'Cold Hands', desc: 'Reach a new bar on an icy bar' },
+    { id: 'first_upgrade', icon: '🎟️', name: 'Gym Membership', desc: 'Buy your first upgrade' },
+    { id: 'maxed', icon: '⚡', name: 'Fully Juiced', desc: 'Max out an upgrade' },
   ];
   const ACH_BY_ID = Object.fromEntries(ACH.map((a) => [a.id, a]));
+
+  // ---------- looks (unlocked by achievements) ----------
+  const ITEMS = [
+    { slot: 'hat', id: 'none', name: 'No hat', icon: '🙅' },
+    { slot: 'hat', id: 'cap', name: 'Propeller Cap', icon: '🧢', ach: 'h10' },
+    { slot: 'hat', id: 'cone', name: 'Traffic Cone', icon: '🚧', ach: 'mat' },
+    { slot: 'hat', id: 'party', name: 'Party Hat', icon: '🥳', ach: 'streak3' },
+    { slot: 'hat', id: 'crown', name: 'Crown', icon: '👑', ach: 'top10' },
+    { slot: 'hat', id: 'helmet', name: 'Space Helmet', icon: '🧑‍🚀', ach: 'zone_space' },
+    { slot: 'jersey', id: 'red', name: 'Classic Red', icon: '🟥', color: '#ff5a3c' },
+    { slot: 'jersey', id: 'blue', name: 'Blue Steel', icon: '🟦', color: '#2f7bff', ach: 'bar5' },
+    { slot: 'jersey', id: 'ref', name: 'Referee', icon: '🦓', color: '#f4f4f4', stripes: '#1d1b2f', ach: 'hops10' },
+    { slot: 'jersey', id: 'gold', name: 'Gold Standard', icon: '🏅', color: '#f5c542', trim: '#7a5a00', ach: 'h25' },
+    { slot: 'jersey', id: 'cloud', name: 'Cloud Nine', icon: '☁️', color: '#dff3ff', stripes: '#9fd0ff', ach: 'wobbly' },
+    { slot: 'jersey', id: 'rainbow', name: 'Rainbow', icon: '🌈', rainbow: true, ach: 'daily_champ' },
+    { slot: 'band', id: 'yellow', name: 'Sunny', icon: '🟨', color: '#ffd23f' },
+    { slot: 'band', id: 'pink', name: 'Hot Pink', icon: '🩷', color: '#ff4fa3', ach: 'first_hop' },
+    { slot: 'band', id: 'white', name: 'Terry Cloth', icon: '🤍', color: '#f7f7f7', ach: 'on_empty' },
+    { slot: 'band', id: 'ice', name: 'Frostbite', icon: '🧊', color: '#7fd8ff', ach: 'icy' },
+    { slot: 'band', id: 'flame', name: 'On Fire', icon: '🔥', color: '#ff6a00', ach: 'clutch' },
+    { slot: 'back', id: 'none', name: 'Nothing', icon: '🙅' },
+    { slot: 'back', id: 'cape', name: 'Hero Cape', icon: '🦸', ach: 'saved' },
+    { slot: 'back', id: 'jetpack', name: 'Jetpack (for show)', icon: '🚀', ach: 'zone_roof' },
+    { slot: 'back', id: 'wings', name: 'Angel Wings', icon: '🪽', ach: 'zone_clouds' },
+    { slot: 'suit', id: 'none', name: 'No suit', icon: '🙅' },
+    { slot: 'suit', id: 'banana', name: 'Banana Suit', icon: '🍌', ach: 'flyer' },
+    { slot: 'suit', id: 'salmon', name: 'Salmon Costume', icon: '🐟', ach: 'ghostbuster' },
+  ];
+  const SLOTS = [['hat', 'Hat'], ['jersey', 'Jersey'], ['band', 'Headband'], ['back', 'Back'], ['suit', 'Suit']];
+  const DEFAULT_LOOK = { hat: 'none', jersey: 'red', band: 'yellow', back: 'none', suit: 'none' };
+  const itemOf = (slot, id) => ITEMS.find((it) => it.slot === slot && it.id === id) || ITEMS.find((it) => it.slot === slot && it.id === DEFAULT_LOOK[slot]);
+  function cleanLook(l) { const out = {}; for (const [slot] of SLOTS) out[slot] = itemOf(slot, l && l[slot]).id; return out; }
+  let look = cleanLook(store.get('rtb_look', DEFAULT_LOOK));
+  const itemUnlocked = (it) => !it.ach || unlocked.has(it.ach);
   let unlocked = new Set(store.get('rtb_ach', []).filter((id) => ACH_BY_ID[id]));
   let stats = Object.assign({ runs: 0, falls: 0, mat: 0, streak: 0, lastDaily: 0 }, store.get('rtb_stats', {}));
   let toasts = [], achSyncTimer = null;
@@ -1234,6 +1445,7 @@ if (typeof document !== 'undefined') (function boot() {
     if (unlocked.has(id) || !ACH_BY_ID[id]) return;
     unlocked.add(id); store.set('rtb_ach', [...unlocked]);
     toasts.push({ a: ACH_BY_ID[id], t: 0 });
+    for (const it of ITEMS) if (it.ach === id) toasts.push({ a: { icon: it.icon, name: 'New look: ' + it.name, desc: 'Put it on in the 👕 Locker' }, t: 0, head: 'UNLOCKED' });
     SFX.milestone();
     syncAchievementsSoon(); refreshMenu();
   }
@@ -1265,6 +1477,10 @@ if (typeof document !== 'undefined') (function boot() {
         if (e.alone) unlock('hand_over_hand');
         if (e.stam < 10) unlock('on_empty');
       }
+      if (e.newBar && e.btype === 'wobbly') unlock('wobbly');
+      if (e.newBar && e.btype === 'icy') unlock('icy');
+    } else if (e.type === 'zone') {
+      unlock(['', 'zone_roof', 'zone_clouds', 'zone_space'][e.zone]);
     } else if (e.type === 'milestone') {
       const m = { 10: 'h10', 25: 'h25', 50: 'h50', 100: 'h100' }[e.value]; if (m) unlock(m);
     }
@@ -1287,13 +1503,111 @@ if (typeof document !== 'undefined') (function boot() {
   let panel = null, lbBoard = 'daily';
   function openPanel(id) {
     panel = id; $(id).classList.remove('hidden');
-    if (id === 'lb') loadBoard(); else renderAchievements();
+    if (id === 'lb') loadBoard(); else if (id === 'locker') renderLocker(); else if (id === 'shop') renderShop(); else renderAchievements();
   }
   function closePanel() { if (panel) $(panel).classList.add('hidden'); panel = null; refreshMenu(); }
   for (const el of document.querySelectorAll('[data-close]')) el.onclick = closePanel;
   for (const el of document.querySelectorAll('.panel')) el.addEventListener('pointerdown', (e) => { if (e.target === el) closePanel(); });
   $('lbBtn').onclick = () => openPanel('lb');
   $('achBtn').onclick = () => openPanel('ach');
+  $('lockerBtn').onclick = () => openPanel('locker');
+
+  // ---- upgrade shop ----
+  // wallet: lifetime Chalk earned + levels owned; spendable = earned - cost of owned levels
+  let wallet = (() => { const w = store.get('rtb_wallet', {}); return { earned: Math.max(0, w.earned | 0), levels: cleanUpgrades(w.levels) }; })();
+  const coinsLeft = () => wallet.earned - upgradesCost(wallet.levels);
+  function saveWallet() { store.set('rtb_wallet', wallet); refreshMenu(); }
+  let upTimer = null;
+  function syncUpgradesSoon() {
+    clearTimeout(upTimer);
+    upTimer = setTimeout(() => {
+      if (!isOnline() || !profile) return;
+      api('PUT', '/api/me/upgrades', { upgrades: wallet.levels }, true).catch(() => { /* runs still uploading: retried after the next upload */ });
+    }, 1200);
+  }
+  function buyUpgrade(id) {
+    const lv = wallet.levels[id];
+    if (lv >= UPGRADE_MAX || coinsLeft() < UPGRADE_COST[lv]) return;
+    wallet.levels = cleanUpgrades(Object.assign({}, wallet.levels, { [id]: lv + 1 }));
+    saveWallet(); syncUpgradesSoon();
+    SFX.catchUp(); unlock('first_upgrade'); if (lv + 1 === UPGRADE_MAX) unlock('maxed');
+    renderShop();
+  }
+  function renderShop() {
+    $('shopCoins').textContent = coinsLeft().toLocaleString();
+    const list = $('shopList'); list.innerHTML = '';
+    for (const u of UPGRADES) {
+      const lv = wallet.levels[u.id], cost = UPGRADE_COST[lv];
+      const row = document.createElement('div'); row.className = 'uprow';
+      row.innerHTML = '<div class="ic"></div><div class="info"><div class="nm"></div><div class="ds"></div><div class="pips"></div></div>';
+      row.querySelector('.ic').textContent = u.icon;
+      row.querySelector('.nm').textContent = u.name + (lv ? ' · Lv ' + lv : '');
+      row.querySelector('.ds').textContent = u.desc;
+      row.querySelector('.pips').innerHTML = Array.from({ length: UPGRADE_MAX }, (_, i) => '<i' + (i < lv ? ' class="on"' : '') + '></i>').join('');
+      const b = btn(lv >= UPGRADE_MAX ? 'MAXED' : cost + ' 🪙', () => buyUpgrade(u.id));
+      b.disabled = lv >= UPGRADE_MAX || coinsLeft() < cost;
+      row.appendChild(b); list.appendChild(row);
+    }
+  }
+  $('shopBtn').onclick = () => openPanel('shop');
+
+  // ---- locker ----
+  let lockerSlot = 'hat', previewG = null, previewT = 0;
+  function setLook(slot, id) {
+    look = cleanLook(Object.assign({}, look, { [slot]: id }));
+    store.set('rtb_look', look);
+    syncLookSoon();
+    renderLocker();
+  }
+  let lookTimer = null;
+  function syncLookSoon() {
+    clearTimeout(lookTimer);
+    lookTimer = setTimeout(() => { if (isOnline() && profile) api('PATCH', '/api/me', { look }, true).catch(() => {}); }, 1200);
+  }
+  function renderLocker() {
+    const tabs = $('lockerTabs'); tabs.innerHTML = '';
+    for (const [slot, label] of SLOTS) {
+      const b = btn(label, () => { lockerSlot = slot; renderLocker(); }, 'tab' + (slot === lockerSlot ? ' on' : ''));
+      tabs.appendChild(b);
+    }
+    const grid = $('lockerGrid'); grid.innerHTML = '';
+    for (const it of ITEMS.filter((i) => i.slot === lockerSlot)) {
+      const open = itemUnlocked(it), on = look[it.slot] === it.id;
+      const d = document.createElement('div');
+      d.className = 'achcard item' + (open ? '' : ' locked') + (on ? ' on' : '');
+      d.innerHTML = '<div class="ic"></div><div class="an"></div><div class="ad"></div>';
+      d.children[0].textContent = it.icon; d.children[1].textContent = it.name;
+      d.children[2].textContent = on ? 'Wearing' : open ? 'Tap to wear' : '🔒 ' + ACH_BY_ID[it.ach].name + ': ' + ACH_BY_ID[it.ach].desc;
+      if (open) d.onclick = () => setLook(it.slot, it.id);
+      grid.appendChild(d);
+    }
+    const n = ITEMS.filter(itemUnlocked).length;
+    $('lockerHint').textContent = n + ' / ' + ITEMS.length + ' items unlocked. Earn achievements for more. Your look shows on your ghost too.';
+  }
+  // live preview: a little climber doing reps in the locker
+  function drawLockerPreview(dt) {
+    const cv = $('lockerPreview'), r = cv.getBoundingClientRect();
+    if (!r.width) return;
+    const pw = Math.round(r.width * dpr), ph = Math.round(r.height * dpr);
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    if (!previewG) previewG = newGame(424242, 'menu');
+    previewT += dt;
+    const cyc = previewT % 2.6;
+    previewG.hands[0].key = previewG.hands[1].key = cyc > 1.6 && cyc < 1.78; // a little pull, never a full release-hop
+    for (let i = 0; i < Math.round(dt / CFG.DT); i++) { stepSim(previewG, CFG.DT); previewG.events.length = 0; }
+    const pc = cv.getContext('2d'), saved = ctx;
+    ctx = pc;
+    const k = ph / 2.9, P = previewG.body.pts;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const bg = ctx.createLinearGradient(0, 0, 0, ph); bg.addColorStop(0, '#7cc8ff'); bg.addColorStop(1, '#dff3ff');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, pw, ph);
+    ctx.setTransform(k, 0, 0, -k, pw / 2 - P[PEL].x * k, ph * 0.12 + (CFG.START_BAR_Y + 0.35) * k);
+    ctx.fillStyle = '#c98b52'; ctx.fillRect(-1.2, 0, 2.4, 4);
+    const b = previewG.bars[0];
+    ctx.strokeStyle = '#23263a'; ctx.lineWidth = 0.055; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(b.x0, b.y + b.o); ctx.lineTo(b.x1, b.y + b.o); ctx.stroke();
+    try { drawGuy(previewG, look, true); } finally { ctx = saved; }
+  }
   $('lbDaily').onclick = () => { lbBoard = 'daily'; loadBoard(); };
   $('lbAll').onclick = () => { lbBoard = 'alltime'; loadBoard(); };
 
@@ -1323,7 +1637,8 @@ if (typeof document !== 'undefined') (function boot() {
         const medal = ['🥇', '🥈', '🥉'][e.rank - 1];
         li.innerHTML = '<span class="rk"></span><span class="nm"></span><span class="ht"></span>';
         li.querySelector('.rk').innerHTML = medal ? '<span class="medal">' + medal + '</span>' : '#' + e.rank;
-        li.querySelector('.nm').textContent = e.name; if (e.you) li.title = 'You';
+        li.querySelector('.nm').textContent = e.name + (e.upgrades ? '  ⚡' + e.upgrades : ''); if (e.you) li.title = 'You';
+        if (e.upgrades) li.querySelector('.nm').title = 'Upgrade levels used on this run';
         li.querySelector('.ht').textContent = e.height.toFixed(1) + 'm';
         li.appendChild(btn('▶', () => playFromBoard(e, false)));
         li.appendChild(btn('👻', () => playFromBoard(e, true)));
@@ -1337,7 +1652,7 @@ if (typeof document !== 'undefined') (function boot() {
       const d = await api('GET', '/api/runs/' + e.runId);
       const r = decodeReplay(d.replay), name = e.you ? 'YOUR BEST' : d.name.toUpperCase().slice(0, 16);
       closePanel(); $('menu').classList.add('hidden'); $('over').classList.add('hidden');
-      if (race) raceReplay(r, name); else startReplay(r, name);
+      if (race) raceReplay(r, name, d.look); else startReplay(r, name, d.look);
     } catch (err) { flash("Couldn't load that run"); }
   }
   $('nameSave').onclick = async () => {
@@ -1355,7 +1670,7 @@ if (typeof document !== 'undefined') (function boot() {
       const prev = profile; profile = { token: code, name: '' };
       let me;
       try { me = await api('GET', '/api/me', null, true); } catch (e) { profile = prev; throw e; }
-      adoptProfile(code.toUpperCase(), me); $('linkInput').value = ''; $('syncCode').textContent = 'hidden';
+      adoptProfile(code.toUpperCase(), me, true); $('linkInput').value = ''; $('syncCode').textContent = 'hidden';
       flash('Linked! Playing as ' + me.name); loadBoard(); flushRuns();
     } catch (e) { flash(e.status === 401 ? "That sync code didn't match a profile" : e.message); }
   };
@@ -1431,7 +1746,7 @@ if (typeof document !== 'undefined') (function boot() {
     mode = 'over';
     const h = g.maxHeight;
     rec.steps = g.n;
-    lastRec = { seed: rec.seed, kind: rec.kind, day: rec.day, steps: rec.steps, changes: rec.changes };
+    lastRec = { seed: rec.seed, kind: rec.kind, day: rec.day, steps: rec.steps, changes: rec.changes, up: rec.up };
     if (h > best + 0.05) { best = h; saveBest(); newBestThisRun = true; }
     let bestLbl = 'BEST', bestVal = best;
     if (rec.kind === 'daily' && rec.day === today) {
@@ -1461,14 +1776,19 @@ if (typeof document !== 'undefined') (function boot() {
     $('oCause').textContent = (causes[g.deathCause] || '') + ' · Bars climbed: ' + g.maxBar + (g.hops ? ' · Hops: ' + g.hops : '');
     const r = lastRec;
     achievementsAfterRun(ghostBeaten);
+    const gain = runCoins(g);
+    wallet.earned += gain; saveWallet();
+    $('oCoins').textContent = gain > 0 ? '+' + gain + ' 🪙 Chalk · ' + coinsLeft().toLocaleString() + ' to spend' : '';
     const rankEl = $('oRank'); rankEl.textContent = '';
-    if (apiBase && online !== 'off' && h >= 0.5) {
+    // every run that earns Chalk is uploaded, so the server's coin total matches the device's
+    if (apiBase && online !== 'off' && (h >= 0.5 || gain > 0)) {
       rankEl.textContent = isOnline() ? 'Submitting to the leaderboard…' : 'Leaderboards offline: this run will upload later';
       const mine = r;
       submitRun(encodeReplay(r)).then((res) => {
         if (lastRec !== mine || mode !== 'over') return;
         if (!res) { rankEl.textContent = isOnline() ? '' : 'Leaderboards offline: this run will upload later'; return; }
         if (res.error) { rankEl.textContent = 'Not ranked: ' + res.error; return; }
+        if (res.earned > wallet.earned) { wallet.earned = res.earned; saveWallet(); }
         const parts = [];
         if (res.daily) parts.push('#' + res.daily.rank + ' today' + (res.daily.improved ? '' : ' (best ' + res.daily.best.toFixed(1) + 'm)'));
         parts.push('#' + res.alltime.rank + ' all-time' + (res.alltime.improved ? '' : ' (best ' + res.alltime.best.toFixed(1) + 'm)'));
@@ -1477,8 +1797,9 @@ if (typeof document !== 'undefined') (function boot() {
     }
     setButtons(btn('Try Again', retry), [
       btn('▶ Watch replay', () => startReplay(r, 'YOU')),
-      btn('👻 Race this run', () => raceReplay(r, 'YOUR GHOST')),
+      btn('👻 Race this run', () => raceReplay(r, 'YOUR GHOST', look)),
       btn('🔗 Share challenge', () => shareRun(r, h)),
+      btn('🛒 Upgrades', () => openPanel('shop')),
       btn('🏆 Leaderboards', () => openPanel('lb')),
       btn('Main menu', toMenu),
     ]);
@@ -1499,7 +1820,7 @@ if (typeof document !== 'undefined') (function boot() {
     $('oVs').textContent = ''; $('oVs').className = 'vs';
     $('oQuip').textContent = own ? '“Look at that form. Truly something.”' : '“Now you know how it’s done. Or how not to.”';
     $('oCause').textContent = 'Bars climbed: ' + g.maxBar + (g.hops ? ' · Hops: ' + g.hops : '');
-    setButtons(btn(own ? '👻 Race this run' : 'Race their ghost', () => raceReplay(r, own ? 'YOUR GHOST' : 'RIVAL')), [
+    setButtons(btn(own ? '👻 Race this run' : 'Race their ghost', () => raceReplay(r, own ? 'YOUR GHOST' : 'RIVAL', own ? look : watching.look)), [
       btn('▶ Watch again', () => startReplay(r, watching.name)),
       btn('🔗 Share', () => shareRun(r, h)),
       btn('New run', startEndless),
@@ -1570,7 +1891,7 @@ if (typeof document !== 'undefined') (function boot() {
         else SFX.pull();
         break;
       case 'slip':
-        SFX.slip(); buzz(40); addText(e.x, e.y + 0.1, e.exhausted ? 'NO GRIP!' : 'SLIP!', '#ff6b6b', 26); say(pick(['WHOA!', 'NOPE!', 'UH OH', 'AAH!']));
+        SFX.slip(); buzz(40); addText(e.x, e.y + 0.1, e.icy ? 'TOO ICY!' : e.exhausted ? 'NO GRIP!' : 'SLIP!', e.icy ? '#9fe3ff' : '#ff6b6b', 26); say(pick(['WHOA!', 'NOPE!', 'UH OH', 'AAH!']));
         break;
       case 'fumble':
         SFX.fumble(); addText(e.x, e.y + 0.1, 'FUMBLE!', '#ff9f43', 22); puff(e.x, e.y, 5, '#ffd9a0', 1.5, 0.03);
@@ -1585,6 +1906,10 @@ if (typeof document !== 'undefined') (function boot() {
         break;
       case 'clank':
         SFX.clank(); cam.shake = Math.max(cam.shake, 0.08); puff(e.x, e.y, 4, '#fff', 1.5, 0.03);
+        break;
+      case 'zone':
+        zoneBanner = { z: e.zone, t: 0 };
+        SFX.zone(); cam.shake = Math.max(cam.shake, 0.12); buzz([40, 60, 40]);
         break;
       case 'milestone':
         SFX.milestone(); cam.shake = Math.max(cam.shake, 0.1);
@@ -1628,7 +1953,7 @@ if (typeof document !== 'undefined') (function boot() {
     const P = g.body.pts, pos = new Float32Array(P.length * 4);
     for (let i = 0; i < P.length; i++) { const p = P[i]; pos[i * 4] = p.x; pos[i * 4 + 1] = p.y; pos[i * 4 + 2] = p.px; pos[i * 4 + 3] = p.py; }
     const hy = P[HEAD].y, bars = [];
-    for (const b of g.bars) if (b.y > hy - 8 && b.y < hy + 8) bars.push(b, b.o, b.hit);
+    for (const b of g.bars) if (b.y > hy - 8 && b.y < hy + 8) bars.push(b, b.o, b.hit, b.ox);
     const f = {
       pos, bars, stam: g.stam,
       grip: [!!g.hands[0].grip, !!g.hands[1].grip], key: [g.hands[0].key, g.hands[1].key],
@@ -1639,7 +1964,7 @@ if (typeof document !== 'undefined') (function boot() {
   function applyFrame(f) {
     const P = g.body.pts;
     for (let i = 0; i < P.length; i++) { const p = P[i]; p.x = f.pos[i * 4]; p.y = f.pos[i * 4 + 1]; p.px = f.pos[i * 4 + 2]; p.py = f.pos[i * 4 + 3]; }
-    for (let i = 0; i < f.bars.length; i += 3) { f.bars[i].o = f.bars[i + 1]; f.bars[i].hit = f.bars[i + 2]; }
+    for (let i = 0; i < f.bars.length; i += 4) { f.bars[i].o = f.bars[i + 1]; f.bars[i].hit = f.bars[i + 2]; f.bars[i].ox = f.bars[i + 3]; }
     g.stam = f.stam;
     for (let s = 0; s < 2; s++) { g.hands[s].grip = f.grip[s] ? FALLCAM_GRIP : null; g.hands[s].key = f.key[s]; }
   }
@@ -1803,12 +2128,18 @@ if (typeof document !== 'undefined') (function boot() {
       }
       updateFx(sdt);
     }
+    if (panel === 'locker') drawLockerPreview(dt);
     updateCamera(dt);
     render(dt);
     requestAnimationFrame(frame);
   }
 
   function updateFx(dt) {
+    if (Math.abs(g.wind) > 0.15 && (mode === 'play' || mode === 'replay') && Math.random() < dt * 22 * Math.min(1, Math.abs(g.wind))) {
+      const P = g.body.pts, dir = Math.sign(g.wind);
+      particles.push({ x: P[HEAD].x - dir * (W / scale / 2 + 0.5), y: P[HEAD].y + (Math.random() - 0.3) * Hh / scale * 0.8, vx: dir * (7 + 5 * Math.abs(g.wind)), vy: 0,
+        life: 1.6, max: 1.6, color: 'rgba(255,255,255,0.55)', size: 0.35 + Math.random() * 0.4, g: 0, streak: true });
+    }
     for (const p of particles) {
       p.vy -= p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.98; p.life -= dt; if (p.rot != null) p.rot += dt * 8;
       if (p.blood && p.y <= 0.02 && p.vy < 0) { p.life = 0; if (splats.length < 400) splats.push({ x: p.x, r: p.size * (1.6 + Math.random()), to: 0, grow: 0 }); }
@@ -1862,9 +2193,11 @@ if (typeof document !== 'undefined') (function boot() {
   }
 
   // ---------- rendering ----------
+  // sky per zone: gym blue -> rooftop sunset -> pastel clouds -> space
   const SKY = [
-    [0, '#7cc8ff', '#dff3ff'], [20, '#6aa9ff', '#ffe8c2'], [45, '#ff9a6b', '#ffd98f'],
-    [75, '#b44f9e', '#ff9f7a'], [110, '#2c1d5e', '#8a4fa8'], [160, '#070617', '#241a4d'],
+    [0, '#7cc8ff', '#dff3ff'], [14, '#6aa9ff', '#ffe8c2'], [30, '#ff9a6b', '#ffd98f'],
+    [42, '#f3a6d6', '#fff1f7'], [66, '#9a7fd1', '#f6c6e6'], [80, '#1b1446', '#4a3584'],
+    [95, '#070617', '#1a1340'],
   ];
   function mixHex(a, b, t) {
     const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
@@ -1893,8 +2226,8 @@ if (typeof document !== 'undefined') (function boot() {
     const gr = ctx.createLinearGradient(0, 0, 0, Hh); gr.addColorStop(0, top); gr.addColorStop(1, bot);
     ctx.fillStyle = gr; ctx.fillRect(0, 0, W, Hh);
     // stars at altitude
-    if (hView > 80) {
-      const a = clamp((hView - 80) / 60, 0, 1);
+    if (hView > 68) {
+      const a = clamp((hView - 68) / 20, 0, 1);
       ctx.fillStyle = 'rgba(255,255,255,' + a + ')';
       for (let i = 0; i < 90; i++) {
         const x = hash(i) * W, y = ((hash(i + 99) * Hh * 1.5 + cam.y * scale * 0.05) % (Hh * 1.5)) - Hh * 0.25;
@@ -1904,7 +2237,8 @@ if (typeof document !== 'undefined') (function boot() {
     // clouds (parallax)
     const par = 0.35;
     const band0 = Math.floor((cam.y * par - 6) / 3), band1 = band0 + 6;
-    ctx.fillStyle = hView > 90 ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.7)';
+    if (hView > 66) drawPlanet(clamp((hView - 66) / 18, 0, 1));
+    ctx.fillStyle = hView > 82 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.7)';
     for (let b = band0; b <= band1; b++) {
       for (let k = 0; k < 2; k++) {
         const id = b * 2 + k;
@@ -1921,6 +2255,8 @@ if (typeof document !== 'undefined') (function boot() {
 
     worldTransform(sx, sy);
     const viewTop = cam.y + Vh / scale / 2 + 1, viewBot = cam.y - (Hh - Vh / 2) / scale - 1;
+    if (viewBot < ZONE_H0 + 20) drawSkyline();
+    if (viewTop > ZONE_H0 + 34 && viewBot < ZONE_H0 + 84) drawCloudLayer(viewBot, viewTop, false);
     // backboard
     ctx.fillStyle = '#c98b52'; ctx.fillRect(-1.75, Math.max(0, viewBot), 3.5, viewTop - Math.max(0, viewBot));
     ctx.strokeStyle = 'rgba(90,50,20,0.25)'; ctx.lineWidth = 0.02;
@@ -1935,6 +2271,13 @@ if (typeof document !== 'undefined') (function boot() {
       const y = h0 + m;
       const w = m % 5 === 0 ? 0.22 : 0.1;
       ctx.fillRect(-1.71, y - 0.008, w, 0.016);
+    }
+    // zone signs on the left rail
+    for (let zi = 1; zi < ZONES.length; zi++) {
+      const zy = ZONE_H0 + ZONES[zi].from;
+      if (zy < viewBot - 1 || zy > viewTop + 1) continue;
+      ctx.fillStyle = '#1d1b2f'; ctx.fillRect(-1.95, zy - 0.02, 3.9, 0.04);
+      ctx.fillStyle = ['#fff', '#ff9a3c', '#f06bc4', '#8a7bff'][zi]; ctx.fillRect(-1.95, zy - 0.012, 3.9, 0.024);
     }
     // ground
     if (viewBot < 0.5) {
@@ -1954,22 +2297,40 @@ if (typeof document !== 'undefined') (function boot() {
     // bars
     for (const b of g.bars) {
       if (b.y < viewBot || b.y > viewTop) continue;
-      const y = b.y + b.o;
-      ctx.fillStyle = '#3b2412';
-      ctx.fillRect(b.x0 - 0.05, b.y - 0.07, 0.07, 0.14); ctx.fillRect(b.x1 - 0.02, b.y - 0.07, 0.07, 0.14);
+      const y = b.y + b.o, ox = b.ox || 0, x0 = b.x0 + ox, x1 = b.x1 + ox, t = b.type;
       ctx.lineCap = 'round';
-      ctx.strokeStyle = '#23263a'; ctx.lineWidth = 0.055;
-      ctx.beginPath(); ctx.moveTo(b.x0, b.y); ctx.quadraticCurveTo((b.x0 + b.x1) / 2, y * 2 - b.y, b.x1, b.y); ctx.stroke();
-      ctx.strokeStyle = b.hit > 0.05 ? 'rgba(255,240,160,' + (0.4 + b.hit * 0.6) + ')' : 'rgba(200,210,230,0.55)'; ctx.lineWidth = 0.015;
-      ctx.beginPath(); ctx.moveTo(b.x0 + 0.02, b.y + 0.012); ctx.quadraticCurveTo((b.x0 + b.x1) / 2, y * 2 - b.y + 0.012, b.x1 - 0.02, b.y + 0.012); ctx.stroke();
+      if (t === 'wobbly') {
+        // hangs from chains like a trapeze, so it swings and bounces
+        ctx.strokeStyle = '#6b6f80'; ctx.lineWidth = 0.02; ctx.setLineDash([0.035, 0.025]);
+        for (const [ex, ax] of [[x0, b.x0], [x1, b.x1]]) { ctx.beginPath(); ctx.moveTo(ex, y); ctx.lineTo(ax, b.y + 0.42); ctx.stroke(); }
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#3b2412'; ctx.fillRect(b.x0 - 0.04, b.y + 0.4, 0.08, 0.05); ctx.fillRect(b.x1 - 0.04, b.y + 0.4, 0.08, 0.05);
+      } else {
+        ctx.fillStyle = '#3b2412';
+        ctx.fillRect(b.x0 - 0.05, b.y - 0.07, 0.07, 0.14); ctx.fillRect(b.x1 - 0.02, b.y - 0.07, 0.07, 0.14);
+      }
+      const main = t === 'icy' ? '#7fd8ff' : t === 'wobbly' ? '#8a4b1f' : '#23263a';
+      ctx.strokeStyle = main; ctx.lineWidth = 0.055;
+      ctx.beginPath(); ctx.moveTo(x0, t === 'wobbly' ? y : b.y); ctx.quadraticCurveTo((x0 + x1) / 2, y * 2 - b.y, x1, t === 'wobbly' ? y : b.y); ctx.stroke();
+      ctx.strokeStyle = b.hit > 0.05 ? 'rgba(255,240,160,' + (0.4 + b.hit * 0.6) + ')' : t === 'icy' ? 'rgba(255,255,255,0.9)' : 'rgba(200,210,230,0.55)'; ctx.lineWidth = 0.015;
+      ctx.beginPath(); ctx.moveTo(x0 + 0.02, (t === 'wobbly' ? y : b.y) + 0.012); ctx.quadraticCurveTo((x0 + x1) / 2, y * 2 - b.y + 0.012, x1 - 0.02, (t === 'wobbly' ? y : b.y) + 0.012); ctx.stroke();
+      if (t === 'icy') { // icicles
+        ctx.fillStyle = 'rgba(200,240,255,0.9)';
+        for (let k = 0, n = Math.floor((x1 - x0) / 0.14); k < n; k++) {
+          const ix = x0 + 0.07 + k * 0.14, len = 0.05 + 0.06 * hash(b.i * 31 + k);
+          ctx.beginPath(); ctx.moveTo(ix - 0.018, y - 0.02); ctx.lineTo(ix + 0.018, y - 0.02); ctx.lineTo(ix, y - 0.02 - len); ctx.fill();
+        }
+      }
     }
 
     // goal lines: your best, and how high the ghost got
     const bestLine = mode === 'replay' ? 0 : currentBest();
     if (bestLine > 1) goalLine(h0 + bestLine, '#ff4f9a');
     if (gh && gh.max > 0.5 && Math.abs(gh.max - bestLine) > 0.05) goalLine(h0 + gh.max, '#39a0ff');
-    if (gh && mode !== 'fallcam') drawGhost(gh.g);
+    if (gh && mode !== 'fallcam') drawGhost(gh.g, gh.look);
     drawGuy();
+
+    if (viewTop > ZONE_H0 + 34 && viewBot < ZONE_H0 + 84) drawCloudLayer(viewBot, viewTop, true);
 
     // particles
     for (const p of particles) {
@@ -1977,6 +2338,7 @@ if (typeof document !== 'undefined') (function boot() {
       ctx.globalAlpha = a; ctx.fillStyle = p.color;
       if (p.confetti) { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillRect(-p.size, -p.size * 0.4, p.size * 2, p.size * 0.8); ctx.restore(); }
       else if (p.star) { drawStar(p.x, p.y, p.size); }
+      else if (p.streak) { ctx.strokeStyle = p.color; ctx.lineWidth = 0.02; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - Math.sign(p.vx) * p.size, p.y); ctx.stroke(); }
       else { ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (p.drop ? 1 : 0.6 + a * 0.6), 0, Math.PI * 2); ctx.fill(); }
     }
     ctx.globalAlpha = 1;
@@ -2031,10 +2393,13 @@ if (typeof document !== 'undefined') (function boot() {
     }
     if (mode === 'play' || mode === 'over' || mode === 'replay') drawHUD();
     if (mode === 'fallcam' && fc) drawFallCam();
+    drawWind();
+    drawZoneBanner(dt || 1 / 60);
     drawToasts(dt || 1 / 60);
     if (flashMsg) {
-      ctx.globalAlpha = clamp(flashMsg.life, 0, 1); ctx.font = '900 20px Trebuchet MS, sans-serif'; ctx.fillStyle = '#1d1b2f';
-      ctx.fillText(flashMsg.t, W / 2, 90); ctx.globalAlpha = 1;
+      ctx.globalAlpha = clamp(flashMsg.life, 0, 1); ctx.font = '900 20px Trebuchet MS, sans-serif';
+      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.strokeText(flashMsg.t, W / 2, 90);
+      ctx.fillStyle = '#1d1b2f'; ctx.fillText(flashMsg.t, W / 2, 90); ctx.globalAlpha = 1;
     }
     if (mode === 'play' && paused) {
       ctx.fillStyle = 'rgba(29,27,47,0.5)'; ctx.fillRect(0, 0, W, Hh);
@@ -2055,9 +2420,83 @@ if (typeof document !== 'undefined') (function boot() {
     ctx.fillStyle = '#ffd23f'; roundRect(x, y, w, h, 12); ctx.fill();
     ctx.strokeStyle = '#1d1b2f'; ctx.lineWidth = 3; ctx.stroke();
     ctx.font = '30px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#1d1b2f'; ctx.fillText(t.a.icon, x + 32, y + h / 2 + 1);
-    ctx.textAlign = 'left'; ctx.font = '900 11px Trebuchet MS, sans-serif'; ctx.fillText('ACHIEVEMENT UNLOCKED', x + 60, y + 17);
+    ctx.textAlign = 'left'; ctx.font = '900 11px Trebuchet MS, sans-serif'; ctx.fillText(t.head || 'ACHIEVEMENT UNLOCKED', x + 60, y + 17);
     ctx.font = '900 19px Trebuchet MS, sans-serif'; ctx.fillText(t.a.name, x + 60, y + 36);
     ctx.font = 'bold 11px Trebuchet MS, sans-serif'; ctx.globalAlpha = 0.75; ctx.fillText(t.a.desc, x + 60, y + 50);
+    ctx.restore();
+  }
+
+  let zoneBanner = null;
+  function drawZoneBanner(dt) {
+    if (!zoneBanner) return;
+    const b = zoneBanner; b.t += dt;
+    if (b.t > 3.2 || mode === 'menu') { zoneBanner = null; return; }
+    const z = ZONES[b.z], k = Math.min(1, b.t / 0.3, (3.2 - b.t) / 0.4);
+    ctx.save(); ctx.globalAlpha = k; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const y = Hh * 0.32, col = ['#fff', '#ff9a3c', '#f06bc4', '#8a7bff'][b.z];
+    ctx.fillStyle = 'rgba(13,12,24,0.72)'; ctx.fillRect(0, y - 52, W, 104);
+    ctx.fillStyle = col; ctx.fillRect(0, y - 52, W, 4); ctx.fillRect(0, y + 48, W, 4);
+    ctx.font = '900 14px Trebuchet MS, sans-serif'; ctx.fillStyle = col; ctx.fillText('ZONE ' + (b.z + 1) + ' · ' + z.from + 'm', W / 2, y - 30);
+    const sc = 1 + 0.25 * Math.max(0, 1 - b.t / 0.25);
+    ctx.font = '900 ' + Math.round(Math.min(46, W / 11) * sc) + 'px Impact, Arial Black, sans-serif'; ctx.fillStyle = '#fff';
+    ctx.fillText(z.name.toUpperCase(), W / 2, y + 2);
+    ctx.font = 'bold 16px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillText(z.tip, W / 2, y + 32);
+    ctx.restore();
+  }
+  // wind: a flag + arrow under the top of the screen, and streaks blowing past
+  function drawWind() {
+    const w = g.wind; if (Math.abs(w) < 0.12 || !(mode === 'play' || mode === 'replay')) return;
+    const x = W / 2, y = safe.t + (isTouch ? 70 : 24), dir = Math.sign(w), mag = Math.min(1, Math.abs(w) / 1.6);
+    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(29,27,47,0.6)'; roundRect(x - 62, y - 14, 124, 28, 14); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = '900 12px Trebuchet MS, sans-serif'; ctx.fillText('WIND', x - 32, y + 1);
+    ctx.strokeStyle = mag > 0.65 ? '#ff9a3c' : '#9fe3ff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    const len = 16 + 26 * mag, ax = x + 18;
+    ctx.beginPath(); ctx.moveTo(ax - dir * len / 2, y); ctx.lineTo(ax + dir * len / 2, y);
+    ctx.moveTo(ax + dir * len / 2, y); ctx.lineTo(ax + dir * (len / 2 - 7), y - 6);
+    ctx.moveTo(ax + dir * len / 2, y); ctx.lineTo(ax + dir * (len / 2 - 7), y + 6); ctx.stroke();
+    ctx.restore();
+  }
+
+  // ---- zone scenery ----
+  function drawSkyline() {
+    // rooftops you climb past around 15m
+    for (let i = 0; i < 16; i++) {
+      const side = i % 2 ? 1 : -1, k = Math.floor(i / 2);
+      const x = side * (2.1 + k * 1.35 + hash(i * 7) * 0.4), w = 1.0 + hash(i * 13) * 0.6, top = ZONE_H0 + 10 + hash(i * 17) * 6.5;
+      ctx.fillStyle = mixHex('#a9bbd8', '#8497bd', hash(i * 3)); // hazy, so they read as far away
+      ctx.fillRect(x - w / 2, 0, w, top);
+      ctx.fillStyle = 'rgba(255,248,220,0.6)';
+      for (let wy = 1.2; wy < top - 0.5; wy += 0.9) for (let wx = -w / 2 + 0.2; wx < w / 2 - 0.2; wx += 0.35)
+        if (hash(i * 101 + wy * 7 + wx * 13) > 0.55) ctx.fillRect(x + wx, wy, 0.14, 0.22);
+      if (i === 3) { // water tower
+        ctx.fillStyle = '#8a6a55'; ctx.fillRect(x - 0.3, top, 0.6, 0.55); ctx.fillRect(x - 0.25, top + 0.55, 0.5, 0.12);
+        ctx.fillStyle = '#6b5446'; ctx.fillRect(x - 0.28, top - 0.01, 0.04, 0.4); ctx.fillRect(x + 0.24, top - 0.01, 0.04, 0.4);
+      }
+      if (i === 6) { ctx.fillStyle = '#7f93b8'; ctx.fillRect(x - 0.02, top, 0.04, 1.4); ctx.fillStyle = '#ff3c3c'; ctx.beginPath(); ctx.arc(x, top + 1.4, 0.05, 0, Math.PI * 2); ctx.fill(); }
+    }
+  }
+  function drawCloudLayer(viewBot, viewTop, front) {
+    // the ladder passes through a sea of clouds between 40m and 80m
+    ctx.fillStyle = front ? 'rgba(255,255,255,0.32)' : 'rgba(255,255,255,0.85)';
+    for (let i = 0; i < 44; i++) {
+      if (front !== (i % 4 === 0)) continue;
+      const cy = ZONE_H0 + 36 + hash(i * 5) * 46; if (cy < viewBot - 2 || cy > viewTop + 2) continue;
+      const cx = (hash(i * 9) - 0.5) * (front ? 6 : 14) + dsin(performance.now() / 9000 + i) * 0.6, r = 0.6 + hash(i * 11) * 1.1;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r * 1.6, r * 0.5, 0, 0, Math.PI * 2); ctx.ellipse(cx - r * 0.7, cy + 0.1, r * 0.8, r * 0.45, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + r * 0.6, cy + 0.15, r, r * 0.55, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  function drawPlanet(a) {
+    const X = W * 0.8, Y = Hh * 0.25, R = Math.min(W, Hh) * 0.12;
+    ctx.save(); ctx.globalAlpha = a;
+    const pg = ctx.createRadialGradient(X - R * 0.4, Y - R * 0.4, R * 0.1, X, Y, R);
+    pg.addColorStop(0, '#ffd59e'); pg.addColorStop(1, '#c0634a');
+    ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(X, Y, R, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,230,190,0.8)'; ctx.lineWidth = R * 0.08;
+    ctx.beginPath(); ctx.ellipse(X, Y, R * 1.7, R * 0.42, -0.35, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
   }
 
@@ -2071,7 +2510,7 @@ if (typeof document !== 'undefined') (function boot() {
     ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(1.72, y); ctx.lineTo(1.72, y + 0.3); ctx.lineTo(1.98, y + 0.22); ctx.lineTo(1.72, y + 0.14); ctx.fill();
   }
   // the ghost: a translucent stick figure replaying a recorded run
-  function drawGhost(gg) {
+  function drawGhost(gg, lk) {
     const P = gg.body.pts;
     const fade = gg.state === 'dying' ? clamp(1 - gg.deathT / 3, 0, 1) : 1;
     if (fade <= 0) return;
@@ -2085,6 +2524,13 @@ if (typeof document !== 'undefined') (function boot() {
     for (const [a, b] of limbs) seg(P[a], P[b], 0.08, col);
     ctx.fillStyle = col; ctx.beginPath(); ctx.arc(P[HEAD].x, P[HEAD].y, 0.13, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = edge; ctx.lineWidth = 0.03; ctx.stroke();
+    if (lk) {
+      const j = itemOf('jersey', lk.jersey);
+      ctx.fillStyle = lk.suit === 'banana' ? '#ffe135' : lk.suit === 'salmon' ? '#fa8072' : j.rainbow ? '#9b5cff' : j.color;
+      ctx.globalAlpha = 0.5 * fade; torsoPath(tq); ctx.fill();
+      const hd = P[HEAD], ux = hd.x - P[NECK].x, uy = hd.y - P[NECK].y, ul = Math.hypot(ux, uy) || 1;
+      if (lk.suit !== 'none') drawSuitHead(lk.suit, hd, ux / ul, uy / ul); else drawHat(lk.hat, hd, ux / ul, uy / ul);
+    }
     ctx.restore();
   }
 
@@ -2101,8 +2547,111 @@ if (typeof document !== 'undefined') (function boot() {
     ctx.strokeStyle = color; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
 
-  function drawGuy() {
-    const P = g.body.pts, s = clamp(g.stam / 100, 0, 1);
+  function torsoPath(tq) { ctx.beginPath(); tq.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); }
+  function paintJersey(tq, it, P) {
+    const top = (P[LSH].y + P[RSH].y) / 2, bot = (P[LHIP].y + P[RHIP].y) / 2;
+    if (it.rainbow) {
+      const gr = ctx.createLinearGradient(0, top, 0, bot);
+      ['#ff3c3c', '#ff9a3c', '#ffd23f', '#3ce07a', '#2f7bff', '#9b5cff'].forEach((c, i) => gr.addColorStop(i / 5, c));
+      ctx.fillStyle = gr;
+    } else ctx.fillStyle = it.color;
+    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 0.05; torsoPath(tq); ctx.stroke(); ctx.fill();
+    if (it.stripes) { // vertical stripes clipped to the torso
+      ctx.save(); torsoPath(tq); ctx.clip();
+      const cx = (P[LSH].x + P[RSH].x) / 2, ang = Math.atan2(P[RSH].y - P[LSH].y, P[RSH].x - P[LSH].x);
+      ctx.translate(cx, (top + bot) / 2); ctx.rotate(ang); ctx.fillStyle = it.stripes;
+      for (let x = -0.4; x < 0.4; x += 0.1) ctx.fillRect(x, -0.5, 0.05, 1);
+      ctx.restore();
+    }
+    if (it.trim) { ctx.strokeStyle = it.trim; ctx.lineWidth = 0.025; torsoPath(tq); ctx.stroke(); }
+  }
+  // draws in a frame where +y points out of the top of the head
+  function headFrame(hd, ux, uy, fn) {
+    ctx.save(); ctx.translate(hd.x, hd.y); ctx.rotate(Math.atan2(uy, ux) - Math.PI / 2); fn(); ctx.restore();
+  }
+  function drawHat(id, hd, ux, uy) {
+    if (id === 'none') return;
+    headFrame(hd, ux, uy, () => {
+      ctx.lineJoin = 'round';
+      if (id === 'cap') {
+        ctx.fillStyle = '#2f7bff'; ctx.beginPath(); ctx.arc(0, 0.03, 0.125, 0, Math.PI); ctx.fill();
+        ctx.fillStyle = '#ffd23f'; for (let a = 0; a < 3; a++) { ctx.beginPath(); ctx.moveTo(0, 0.03); ctx.arc(0, 0.03, 0.125, a * Math.PI / 3 + 0.3, a * Math.PI / 3 + 0.65); ctx.fill(); }
+        ctx.fillStyle = '#1d1b2f'; ctx.fillRect(-0.008, 0.15, 0.016, 0.06);
+        const spin = Math.cos(performance.now() / 45);
+        ctx.fillStyle = '#ff3c3c'; ctx.beginPath(); ctx.ellipse(0, 0.215, 0.13 * Math.abs(spin) + 0.01, 0.02, 0, 0, Math.PI * 2); ctx.fill();
+      } else if (id === 'cone') {
+        ctx.fillStyle = '#ff7a1a'; ctx.beginPath(); ctx.moveTo(-0.12, 0.07); ctx.lineTo(0.12, 0.07); ctx.lineTo(0.025, 0.4); ctx.lineTo(-0.025, 0.4); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.fillRect(-0.085, 0.17, 0.17, 0.035); ctx.fillRect(-0.06, 0.26, 0.12, 0.03);
+        ctx.fillStyle = '#1d1b2f'; ctx.fillRect(-0.16, 0.05, 0.32, 0.03);
+      } else if (id === 'party') {
+        ctx.fillStyle = '#9b5cff'; ctx.beginPath(); ctx.moveTo(-0.09, 0.08); ctx.lineTo(0.09, 0.08); ctx.lineTo(0, 0.36); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.moveTo(-0.06, 0.16); ctx.lineTo(0.055, 0.16); ctx.lineTo(0.04, 0.2); ctx.lineTo(-0.045, 0.2); ctx.fill();
+        ctx.fillStyle = '#ff4fa3'; ctx.beginPath(); ctx.arc(0, 0.37, 0.03, 0, Math.PI * 2); ctx.fill();
+      } else if (id === 'crown') {
+        ctx.fillStyle = '#f5c542'; ctx.strokeStyle = '#7a5a00'; ctx.lineWidth = 0.012;
+        ctx.beginPath(); ctx.moveTo(-0.11, 0.07); ctx.lineTo(0.11, 0.07); ctx.lineTo(0.12, 0.2); ctx.lineTo(0.06, 0.13); ctx.lineTo(0, 0.22); ctx.lineTo(-0.06, 0.13); ctx.lineTo(-0.12, 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ff3c3c'; ctx.beginPath(); ctx.arc(0, 0.1, 0.018, 0, Math.PI * 2); ctx.fill();
+      } else if (id === 'helmet') {
+        ctx.fillStyle = 'rgba(190,230,255,0.28)'; ctx.strokeStyle = '#e8eef7'; ctx.lineWidth = 0.025;
+        ctx.beginPath(); ctx.arc(0, 0, 0.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 0.02; ctx.beginPath(); ctx.arc(0, 0, 0.16, 2.0, 2.7); ctx.stroke();
+        ctx.fillStyle = '#e8eef7'; ctx.fillRect(-0.13, -0.2, 0.26, 0.05);
+      }
+    });
+  }
+  function drawSuitHead(suit, hd, ux, uy) {
+    headFrame(hd, ux, uy, () => {
+      if (suit === 'banana') {
+        ctx.fillStyle = '#ffe135'; ctx.strokeStyle = '#1d1b2f'; ctx.lineWidth = 0.02;
+        ctx.beginPath(); ctx.ellipse(0, 0.06, 0.16, 0.26, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = '#c9a800'; ctx.beginPath(); ctx.moveTo(-0.05, -0.15); ctx.quadraticCurveTo(-0.08, 0.06, -0.03, 0.28); ctx.moveTo(0.05, -0.15); ctx.quadraticCurveTo(0.08, 0.06, 0.03, 0.28); ctx.stroke();
+        ctx.fillStyle = '#5a3a1a'; ctx.fillRect(-0.02, 0.3, 0.04, 0.07);
+      } else if (suit === 'salmon') {
+        ctx.fillStyle = '#fa8072'; ctx.strokeStyle = '#1d1b2f'; ctx.lineWidth = 0.02;
+        ctx.beginPath(); ctx.ellipse(0, 0.04, 0.15, 0.2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = '#e86a5c'; for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(0, 0.12 - k * 0.07, 0.07, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); }
+        ctx.fillStyle = '#fa8072'; ctx.strokeStyle = '#1d1b2f';
+        ctx.beginPath(); ctx.moveTo(0, 0.2); ctx.lineTo(-0.13, 0.38); ctx.lineTo(0, 0.31); ctx.lineTo(0.13, 0.38); ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    });
+  }
+  function drawBackItem(id, P, gg) {
+    if (id === 'none') return;
+    const ls = P[LSH], rs = P[RSH], lh = P[LHIP], rh = P[RHIP];
+    const ux = (ls.x + rs.x) / 2 - (lh.x + rh.x) / 2, uy = (ls.y + rs.y) / 2 - (lh.y + rh.y) / 2, ul = Math.hypot(ux, uy) || 1;
+    if (id === 'cape') {
+      const lag = clamp(-gg.comV.x * 0.08, -0.25, 0.25), drop = 0.22 + clamp(gg.comV.y * 0.05, -0.15, 0.1);
+      ctx.fillStyle = '#d62828'; ctx.strokeStyle = '#8a1414'; ctx.lineWidth = 0.02;
+      ctx.beginPath(); ctx.moveTo(ls.x, ls.y); ctx.lineTo(rs.x, rs.y);
+      ctx.quadraticCurveTo(rh.x + 0.1 + lag, rh.y, rh.x + 0.06 + lag, rh.y - drop);
+      ctx.quadraticCurveTo((lh.x + rh.x) / 2 + lag, (lh.y + rh.y) / 2 - drop - 0.06, lh.x - 0.06 + lag, lh.y - drop);
+      ctx.quadraticCurveTo(lh.x - 0.1 + lag, lh.y, ls.x, ls.y); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#f5c542'; ctx.lineWidth = 0.035; ctx.beginPath(); ctx.moveTo(ls.x, ls.y); ctx.lineTo(rs.x, rs.y); ctx.stroke();
+    } else if (id === 'jetpack') {
+      const cx = (ls.x + rs.x + lh.x + rh.x) / 4, cy = (ls.y + rs.y + lh.y + rh.y) / 4 + 0.05;
+      headFrame({ x: cx, y: cy }, ux / ul, uy / ul, () => {
+        ctx.fillStyle = '#9aa3b5'; ctx.strokeStyle = '#1d1b2f'; ctx.lineWidth = 0.015;
+        for (const sx of [-0.07, 0.07]) { roundRect(sx - 0.055, -0.16, 0.11, 0.3, 0.04); ctx.fill(); ctx.stroke(); }
+        ctx.fillStyle = '#ff5a3c'; ctx.fillRect(-0.12, 0.05, 0.24, 0.03);
+        const firing = !gg.hands[0].grip && !gg.hands[1].grip || (gg.hands[0].key && gg.hands[1].key);
+        if (firing) { ctx.fillStyle = Math.random() < 0.5 ? '#ffd23f' : '#ff7a1a'; for (const sx of [-0.07, 0.07]) { ctx.beginPath(); ctx.moveTo(sx - 0.035, -0.16); ctx.lineTo(sx + 0.035, -0.16); ctx.lineTo(sx, -0.3 - Math.random() * 0.08); ctx.fill(); } }
+      });
+    } else if (id === 'wings') {
+      const flap = 0.15 * Math.sin(performance.now() / 160);
+      ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.strokeStyle = '#b8c4d6'; ctx.lineWidth = 0.015;
+      for (const [sh, sgn] of [[ls, -1], [rs, 1]]) {
+        const bx = lerp(sh.x, (lh.x + rh.x) / 2, 0.35), by = lerp(sh.y, (lh.y + rh.y) / 2, 0.35);
+        ctx.beginPath(); ctx.moveTo(bx, by);
+        ctx.quadraticCurveTo(bx + sgn * 0.3, by + 0.25 + flap, bx + sgn * 0.42, by + 0.05 + flap);
+        ctx.quadraticCurveTo(bx + sgn * 0.3, by - 0.12, bx, by - 0.12); ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    }
+  }
+
+  function drawGuy(gg = g, lk = look, preview = false) {
+    const P = gg.body.pts, s = clamp(gg.stam / 100, 0, 1);
+    const suit = lk.suit, jersey = itemOf('jersey', lk.jersey), band = itemOf('band', lk.band);
+    const suitCol = suit === 'banana' ? '#ffe135' : suit === 'salmon' ? '#fa8072' : null;
     const fat = 1 - s;
     const skin = mixHex('#f2c48d', '#e8665a', clamp(fat * 1.2 - 0.1, 0, 1));
     const outline = '#1d1b2f';
@@ -2114,7 +2663,7 @@ if (typeof document !== 'undefined') (function boot() {
       seg(P[hi], P[ki], 0.10, skin); seg(P[ki], P[fi], 0.08, skin);
       // shorts
       const mx = lerp(P[hi].x, P[ki].x, 0.45), my = lerp(P[hi].y, P[ki].y, 0.45);
-      seg(P[hi], { x: mx, y: my }, 0.15, '#1d1b2f'); seg(P[hi], { x: mx, y: my }, 0.12, '#2b3a67');
+      seg(P[hi], { x: mx, y: my }, 0.15, '#1d1b2f'); seg(P[hi], { x: mx, y: my }, 0.12, suitCol || '#2b3a67');
       // shoe
       ctx.fillStyle = '#1d1b2f'; ctx.beginPath(); ctx.ellipse(P[fi].x, P[fi].y - 0.02, 0.07, 0.045, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(P[fi].x, P[fi].y - 0.035, 0.04, 0.015, 0, 0, Math.PI * 2); ctx.fill();
@@ -2123,25 +2672,26 @@ if (typeof document !== 'undefined') (function boot() {
     const tq = [P[LSH], P[RSH], P[RHIP], P[LHIP]];
     ctx.fillStyle = outline; ctx.beginPath(); tq.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath();
     ctx.lineWidth = 0.1; ctx.strokeStyle = outline; ctx.stroke(); ctx.fill();
-    ctx.fillStyle = '#ff5a3c'; ctx.beginPath(); tq.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath();
-    ctx.lineWidth = 0.05; ctx.strokeStyle = '#ff5a3c'; ctx.stroke(); ctx.fill();
+    paintJersey(tq, suitCol ? { color: suitCol, stripes: suit === 'salmon' ? '#e86a5c' : null } : jersey, P);
     // jersey number
-    {
+    if (!suitCol) {
       const cx = (P[LSH].x + P[RSH].x + P[PEL].x) / 3, cy = (P[LSH].y + P[RSH].y + P[PEL].y) / 3 + 0.03;
       const ang = Math.atan2(P[RSH].y - P[LSH].y, P[RSH].x - P[LSH].x);
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang); ctx.scale(1, -1);
-      ctx.fillStyle = '#fff'; ctx.font = '900 0.2px Impact, Arial Black, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(String(Math.floor(g.maxHeight)).padStart(2, '0'), 0, 0);
+      ctx.fillStyle = jersey.id === 'ref' || jersey.id === 'cloud' || jersey.id === 'gold' ? '#1d1b2f' : '#fff';
+      ctx.font = '900 0.2px Impact, Arial Black, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(Math.floor(gg.maxHeight)).padStart(2, '0'), 0, 0);
       ctx.restore();
     }
+    drawBackItem(lk.back, P, gg);
     // arms
-    const H = g.hands;
+    const H = gg.hands;
     for (const h of H) {
       const sh = P[h.sh], el = P[h.el], hp = P[h.idx];
       const pulling = h.grip && h.key;
       const w = pulling ? 0.115 : 0.09;
       // release cue: the arm glows while letting go would launch the hand
-      const tr = mode === 'menu' ? 0 : throwReady(g, h);
+      const tr = preview || mode === 'menu' ? 0 : throwReady(gg, h);
       if (tr) {
         const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 55);
         ctx.strokeStyle = tr === 2 ? 'rgba(255,244,90,' + (0.55 + 0.4 * pulse) + ')' : 'rgba(255,150,60,0.45)';
@@ -2175,12 +2725,16 @@ if (typeof document !== 'undefined') (function boot() {
     ctx.fillStyle = skin;
     ctx.beginPath(); ctx.arc(hd.x + rx * 0.12, hd.y + ry * 0.12, 0.03, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.arc(hd.x - rx * 0.12, hd.y - ry * 0.12, 0.03, 0, Math.PI * 2); ctx.fill();
-    // headband
-    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 0.04;
-    ctx.beginPath(); ctx.moveTo(hd.x - rx * 0.115 + ux / ul * 0.03, hd.y - ry * 0.115 + uy / ul * 0.03); ctx.lineTo(hd.x + rx * 0.115 + ux / ul * 0.03, hd.y + ry * 0.115 + uy / ul * 0.03); ctx.stroke();
-    ctx.lineWidth = 0.03; ctx.beginPath(); ctx.moveTo(tie[0].x, tie[0].y); for (let i = 1; i < tie.length; i++) ctx.lineTo(tie[i].x, tie[i].y); ctx.stroke();
+    if (suitCol) drawSuitHead(suit, hd, ux / ul, uy / ul);
+    else {
+      // headband
+      ctx.strokeStyle = band.color; ctx.lineWidth = 0.04;
+      ctx.beginPath(); ctx.moveTo(hd.x - rx * 0.115 + ux / ul * 0.03, hd.y - ry * 0.115 + uy / ul * 0.03); ctx.lineTo(hd.x + rx * 0.115 + ux / ul * 0.03, hd.y + ry * 0.115 + uy / ul * 0.03); ctx.stroke();
+      if (!preview) { ctx.lineWidth = 0.03; ctx.beginPath(); ctx.moveTo(tie[0].x, tie[0].y); for (let i = 1; i < tie.length; i++) ctx.lineTo(tie[i].x, tie[i].y); ctx.stroke(); }
+      drawHat(lk.hat, hd, ux / ul, uy / ul);
+    }
     // S / K tags above hands during play
-    if (mode === 'play' && g.state === 'play') {
+    if (!preview && mode === 'play' && gg.state === 'play') {
       ctx.save();
       for (const h of H) {
         const hp = P[h.idx];
@@ -2208,6 +2762,9 @@ if (typeof document !== 'undefined') (function boot() {
   }
 
   function drawHUD() {
+    // small HUD text flips to light once the sky gets dark (space)
+    const night = cam.y - (g.headStartY || 2) > 72;
+    const ink = (a) => (night ? 'rgba(255,255,255,' + Math.min(1, a + 0.1) + ')' : 'rgba(29,27,47,' + a + ')');
     const pad = 18, pl = pad + safe.l, pr = pad + safe.r, pt = pad + safe.t, pb = pad + safe.b;
     // touch zones: tint the half being held
     if (isTouch && mode === 'play') {
@@ -2224,12 +2781,12 @@ if (typeof document !== 'undefined') (function boot() {
     ctx.textBaseline = 'alphabetic';
     // height
     ctx.textAlign = 'left';
-    ctx.font = '900 14px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.75)';
+    ctx.font = '900 14px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.75);
     ctx.fillText('HEIGHT', pl, pt + 12);
     ctx.font = '900 44px Impact, Arial Black, sans-serif';
     ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(g.height.toFixed(1) + 'm', pl, pt + 56);
     ctx.fillStyle = '#1d1b2f'; ctx.fillText(g.height.toFixed(1) + 'm', pl, pt + 56);
-    ctx.font = 'bold 14px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.8)';
+    ctx.font = 'bold 14px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.8);
     ctx.fillText('MAX ' + g.maxHeight.toFixed(1) + 'm  ·  SCORE ' + score(g), pl, pt + 78);
     // best
     ctx.textAlign = 'right';
@@ -2239,13 +2796,14 @@ if (typeof document !== 'undefined') (function boot() {
     else if (gh) { bLbl = gh.name; bVal = gh.max; }
     const ahead = mode !== 'replay' && g.maxHeight > bVal && bVal > 0;
     const bshow = mode === 'replay' ? bVal : Math.max(bVal, g.maxHeight);
-    ctx.font = '900 14px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.75)';
+    ctx.font = '900 14px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.75);
     ctx.fillText(bLbl, W - pr, pt + 12);
     ctx.font = '900 34px Impact, Arial Black, sans-serif';
     ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
     ctx.fillStyle = ahead ? '#e0357a' : '#1d1b2f'; ctx.fillText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
-    ctx.font = 'bold 12px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.7)';
-    const badge = mode === 'replay' ? '' : run && run.kind === 'daily' ? 'DAILY #' + run.day : run && run.kind === 'challenge' ? 'GHOST RACE' : '';
+    ctx.font = 'bold 12px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.7);
+    const upLv = Object.values(g.up || {}).reduce((a, b) => a + b, 0);
+    const badge = mode === 'replay' ? '' : run && run.kind === 'daily' ? 'DAILY #' + run.day + ' · NO UPGRADES' : (run && run.kind === 'challenge' ? 'GHOST RACE' : '') + (upLv ? (run && run.kind === 'challenge' ? ' · ' : '') + '⚡' + upLv : '');
     if (badge) ctx.fillText(badge, W - pr, pt + 68);
     if (mode === 'replay') {
       const t = '▶ REPLAY' + (watching && watching.name !== 'YOU' ? ' · ' + watching.name : '');
@@ -2253,7 +2811,7 @@ if (typeof document !== 'undefined') (function boot() {
       const w = ctx.measureText(t).width + 28, x0 = W / 2 - w / 2, y0 = pt + (isTouch ? 44 : 0);
       ctx.fillStyle = Math.floor(performance.now() / 500) % 2 ? '#ff3c3c' : '#d62828'; roundRect(x0, y0, w, 34, 8); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.fillText(t, W / 2, y0 + 24);
-      ctx.font = 'bold 13px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(29,27,47,0.8)';
+      ctx.font = 'bold 13px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.8);
       ctx.fillText(isTouch ? 'Tap to skip' : 'Enter / Esc to skip', W / 2, y0 + 52);
     }
 

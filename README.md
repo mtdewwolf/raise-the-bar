@@ -49,7 +49,7 @@ Challenge links from the app point at `https://mtdewwolf.github.io/raise-the-bar
 
 ## Learning the hop
 
-- **Release cue.** Your arms (and the on-screen buttons) glow yellow while letting go would launch the hand upward, and orange when you've held too long and are sinking.
+- **Release cue.** Your arms (and the on-screen buttons) glow yellow in the sweet spot, when letting go gives a strong hop. They glow orange once you've held too long and the rise has stalled.
 - **Coaching.** Until you've climbed a few bars, prompts walk you through it: hold, keep pulling, *LET GO NOW!*
 - **Early bars are forgiving.** The first dozen bars allow sloppier, faster catches.
 - **Slow motion** kicks in for clutch catches: grabbing a bar while dropping fast, after a long one-handed flight, or on nearly empty stamina.
@@ -62,11 +62,44 @@ The physics is fully deterministic. It uses only arithmetic that gives the same 
 - **Watch replay / Race this run** after any fall.
 - **Share challenge:** copies a link with the run built in. Whoever opens it can watch your run or race your ghost on the exact same ladder. Links only work for other people once the game is hosted online (e.g. GitHub Pages), not from a local file.
 
+## Zones
+
+The ladder changes as you climb, and a banner announces each new zone:
+
+| Height | Zone | What changes |
+| --- | --- | --- |
+| 0–15m | **The Gym** | Nothing: learn the basics |
+| 15–40m | **The Rooftop** | Wind gusts push you sideways (see the WIND arrow), and you climb past the city's rooftops |
+| 40–80m | **The Clouds** | **Wobbly bars** hang from chains, and swing and bounce when you grab them. **Icy bars** hold less weight and drain stamina, so you can't rest on them |
+| 80m+ | **Space** | **Low gravity:** hops go much higher and floatier, and the bars are spread further apart |
+
+Like everything else, the zones come from the ladder's seed, so ghosts, replays and server-verified scores all stay exact. Gaps are capped at what a hop can actually reach. Higher up, the challenge comes from shorter, offset bars, stamina and each zone's hazards.
+
+## Upgrades
+
+Every run earns **🪙 Chalk**: 10 per metre climbed and 2 per bar reached. Spend it in **🛒 Upgrades** on five upgrades, each with 5 levels (80 → 150 → 280 → 500 → 900 Chalk):
+
+| Upgrade | Effect per level |
+| --- | --- |
+| 💪 Explosive Pull | +8% pulling strength (keeps hops strong when you're tired) |
+| 🦘 Spring Hop | An upward kick on two-handed releases. The best-possible hop goes from ~0.84m to ~1.2m at max level (~1.4m combined with Explosive Pull) |
+| 🫁 Endurance | -8% stamina drain |
+| 🧤 Chalk Grip | +10% grip strength |
+| 🔋 Recovery | +15% stamina recovery while hanging |
+
+The ladder stays climbable on skill alone, but from the Clouds up the gaps widen, and that's where upgrades pay off.
+
+**Fair play:** each replay records the upgrade levels it was played with, so the server re-simulates runs with them, and it checks that the player's *verified* runs have earned enough Chalk to own them. Leaderboard entries show ⚡ with the total upgrade levels used. The **Daily Ladder is always played without upgrades**, so it stays a pure skill contest. Your Chalk and upgrades follow your profile to other devices.
+
+## Locker
+
+**👕 Locker** in the menu lets you dress your climber: 24 items across hats, jerseys, headbands, back items (Hero Cape, Jetpack, Angel Wings) and full suits (Banana, Salmon). Each one is unlocked by an achievement, and a live preview shows the result. Your look is saved to your profile, and your ghost wears it when other players race you from the leaderboard.
+
 ## Leaderboards and achievements
 
 - **Leaderboards** (🏆 in the menu): today's Daily Ladder and all-time. Scores are checked by the server, which re-runs every replay through the game's physics. Press ▶ to watch any entry, or 👻 to race its ghost.
 - **One profile on every device.** You get an anonymous profile with a silly name you can change. Its **sync code** carries your scores and achievements between the browser and the Android app.
-- **21 achievements** (🏅 in the menu), from *Liftoff* to *Space Program*, with a pop-up when you unlock one. They're saved on the device and synced to your profile when online.
+- **28 achievements** (🏅 in the menu), from *Liftoff* to *Space Program*, with a pop-up when you unlock one. They're saved on the device and synced to your profile when online.
 - **Works offline.** Without a server the game plays normally. Runs finished offline upload the next time the server can be reached.
 
 Leaderboards need the small server in [`server/`](server/README.md): no dependencies, one command to start, and it can host the game itself.

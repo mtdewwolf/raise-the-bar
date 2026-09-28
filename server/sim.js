@@ -28,7 +28,7 @@ function verifyReplay(RTB, code) {
     if (step < last || step > rec.steps || bits < 0 || bits > 3) throw new Error('malformed replay');
     last = step;
   }
-  const g = RTB.newGame(rec.seed, 'play'), pb = RTB.makePlayback(rec);
+  const g = RTB.newGame(rec.seed, 'play', rec.up), pb = RTB.makePlayback(rec);
   const cap = rec.steps + 600;
   while (g.n < cap && !(g.state === 'dying' && g.deathT > 0.2)) {
     RTB.applyPlayback(g, pb); RTB.stepSim(g, RTB.CFG.DT); g.events.length = 0;
@@ -36,6 +36,7 @@ function verifyReplay(RTB, code) {
   return {
     seed: rec.seed, kind: rec.kind, day: rec.day, steps: rec.steps,
     height: Math.round(g.maxHeight * 100) / 100, score: RTB.score(g), bars: g.maxBar, hops: g.hops,
+    coins: RTB.runCoins(g), up: RTB.cleanUpgrades(rec.up),
     finished: g.state === 'dying',
   };
 }

@@ -10,8 +10,8 @@ let clock = Date.UTC(2026, 8, 25, 12);
 const now = () => clock;
 
 // Plays a scripted run with the real simulation and returns its replay code + local result.
-function playRun(seed, { kind = 'endless', day = 0, hops = 3 } = {}) {
-  const g = RTB.newGame(seed, 'play'); const changes = []; let last = 0, done = 0, t = 0;
+function playRun(seed, { kind = 'endless', day = 0, hops = 3, up = {} } = {}) {
+  const g = RTB.newGame(seed, 'play', up); const changes = []; let last = 0, done = 0, t = 0;
   while (!(g.state === 'dying' && g.deathT > 1.5) && g.n < 120 * 120) {
     // hop: pull ~0.2s, release, rest 1.5s; after `hops` hops hang on until the grip gives out
     const phase = t % 205, pulling = done < hops ? phase < 24 : true;
@@ -22,8 +22,8 @@ function playRun(seed, { kind = 'endless', day = 0, hops = 3 } = {}) {
     if (bits !== last) { changes.push([g.n, bits]); last = bits; }
     RTB.stepSim(g, RTB.CFG.DT); g.events.length = 0; t++;
   }
-  const code = RTB.encodeReplay({ seed, kind, day, steps: g.n, changes });
-  return { code, height: Math.round(g.maxHeight * 100) / 100 };
+  const code = RTB.encodeReplay({ seed, kind, day, steps: g.n, changes, up });
+  return { code, height: Math.round(g.maxHeight * 100) / 100, coins: RTB.runCoins(g) };
 }
 
 async function withServer(fn) {
@@ -136,4 +136,59 @@ test('serves the game and answers CORS preflight', () => withServer(async (call)
   assert.equal((await call('GET', '/api/health')).body.ok, true);
   assert.equal((await call('OPTIONS', '/api/runs')).status, 204);
   assert.equal((await call('GET', '/api/nope')).status, 404);
+}));
+
+test('looks are saved on the profile and shown with runs', () => withServer(async (call) => {
+  const t = (await call('POST', '/api/player', { name: 'Fancy' })).body.token;
+  const r = await call('PATCH', '/api/me', { look: { hat: 'crown', jersey: 'gold', suit: 'none', bogus: 'x', band: 'NOT OK' } }, t);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.look, { hat: 'crown', jersey: 'gold', suit: 'none' });
+  assert.equal((await call('PATCH', '/api/me', { look: 'nope' }, t)).status, 400);
+  assert.equal((await call('PATCH', '/api/me', {}, t)).status, 400);
+  const run = await call('POST', '/api/runs', { replay: playRun(77, { hops: 1 }).code }, t);
+  const rep = await call('GET', '/api/runs/' + run.body.runId);
+  assert.equal(rep.body.look.hat, 'crown');
+}));
+
+test('replays from older physics versions are rejected', () => withServer(async (call) => {
+  const t = (await call('POST', '/api/player', {})).body.token;
+  const code = playRun(5, { hops: 1 }).code;
+  const bytes = Buffer.from(code.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  bytes[0] = RTB.REPLAY_VERSION - 1; // pretend it was recorded before the zones update
+  const old = bytes.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const r = await call('POST', '/api/runs', { replay: old }, t);
+  assert.equal(r.status, 422); assert.match(r.body.error, /version/);
+}));
+
+test('upgrades must be paid for with coins from verified runs', () => withServer(async (call) => {
+  const t = (await call('POST', '/api/player', { name: 'Grinder' })).body.token;
+  const up = { spring: 1 }; // costs 80
+  // a brand-new profile can't use (or store) upgrades it hasn't earned
+  assert.equal((await call('POST', '/api/runs', { replay: playRun(301, { hops: 2, up }).code }, t)).status, 422);
+  assert.equal((await call('PUT', '/api/me/upgrades', { upgrades: up }, t)).status, 409);
+  // earn coins with plain runs until the upgrade is affordable
+  let earned = 0;
+  for (let seed = 310; earned < 80; seed++) {
+    const r = await call('POST', '/api/runs', { replay: playRun(seed, { hops: 3 }).code }, t);
+    assert.equal(r.status, 200); earned = r.body.earned;
+    assert.ok(r.body.coins > 0);
+  }
+  const put = await call('PUT', '/api/me/upgrades', { upgrades: { spring: 1, pull: 9, junk: 3 } }, t);
+  assert.equal(put.status, 409); // pull:9 is clamped to 5 = far too expensive
+  const ok = await call('PUT', '/api/me/upgrades', { upgrades: up }, t);
+  assert.equal(ok.status, 200); assert.equal(ok.body.upgrades.spring, 1);
+  assert.equal((await call('GET', '/api/me', null, t)).body.upgrades.spring, 1);
+  // now a run with that upgrade verifies, and the leaderboard shows the upgrade level
+  const r = await call('POST', '/api/runs', { replay: playRun(399, { hops: 3, up }).code }, t);
+  assert.equal(r.status, 200);
+  const lb = await call('GET', '/api/leaderboard?board=alltime');
+  assert.ok(lb.body.entries.some((e) => e.upgrades >= 0));
+}));
+
+test('upgraded runs never count on the daily board', () => withServer(async (call) => {
+  const t = (await call('POST', '/api/player', { name: 'Purist' })).body.token;
+  const day = RTB.dayNumber(clock);
+  for (let seed = 500; (await call('GET', '/api/me', null, t)).body.earned < 80; seed++) await call('POST', '/api/runs', { replay: playRun(seed, { hops: 3 }).code }, t);
+  const r = await call('POST', '/api/runs', { replay: playRun(RTB.dailySeed(day), { kind: 'daily', day, hops: 2, up: { spring: 1 } }).code }, t);
+  assert.equal(r.status, 200); assert.equal(r.body.daily, null);
 }));

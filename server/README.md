@@ -53,16 +53,18 @@ All endpoints return JSON. Authenticated endpoints need `Authorization: Bearer <
 | `GET /api/health` | `{ ok, day }` |
 | `POST /api/player` `{ name? }` | Creates an anonymous profile: `{ token, name, achievements }`. The token is also the **sync code** shown in the game |
 | `GET /api/me` 🔒 | Profile. This is also how "link another device" checks a sync code |
-| `PATCH /api/me` 🔒 `{ name }` | Rename (2–16 characters) |
+| `PATCH /api/me` 🔒 `{ name?, look? }` | Rename (2–16 characters) and/or save the Locker look (`{ hat, jersey, band, back, suit }`) |
 | `PUT /api/me/achievements` 🔒 `{ ids }` | Merges achievements and returns the combined list |
+| `PUT /api/me/upgrades` 🔒 `{ upgrades }` | Saves upgrade levels if the Chalk earned by verified runs covers them (409 if not yet) |
 | `POST /api/runs` 🔒 `{ replay }` | Verifies and ranks a run: `{ height, alltime: { rank, total, best, improved }, daily }` |
 | `GET /api/leaderboard?board=daily\|alltime&day=N&limit=50` | Top entries, plus your own row if you're outside them (send the token) |
-| `GET /api/runs/:id` | A run's replay, for watching it or racing its ghost |
+| `GET /api/runs/:id` | A run's replay and its player's look, for watching it or racing its ghost |
 
 ## How ranking works
 
 - **All-time:** every verified run counts. Each player's best height is ranked; if two heights tie, whoever reached it first ranks higher.
-- **Daily:** only runs on that day's real daily seed count, accepted for today or yesterday to allow for time zones.
+- **Daily:** only runs on that day's real daily seed count, accepted for today or yesterday to allow for time zones, and only runs played without upgrades.
+- **Upgrades:** Chalk is earned only by verified runs (`runs.coins`). A run is rejected if the upgrade levels recorded in its replay cost more than the player's verified runs had earned before it.
 - Resubmitting your own run is harmless, because the offline queue retries. A replay that someone else already submitted is rejected.
 
 ## Known limits
@@ -71,4 +73,4 @@ All endpoints return JSON. Authenticated endpoints need `Authorization: Bearer <
 - **Endless runs can use any seed**, so players could in principle search for friendly ladders. Every ladder follows the same difficulty rules, so the advantage is small.
 - **Rate limits** allow each player 8 run submissions a minute (20 per IP address), because verifying a long run takes real CPU. Add workers (`RTB_VERIFY_WORKERS`) if a busy server's queue grows.
 - **Names aren't unique.** Profiles are anonymous, and the sync code is the only credential. If someone loses it, they lose access to that profile.
-- **A physics change affects ranked runs.** Changing the simulation changes how old replays play out, so existing verified runs would no longer reproduce. If you change the physics, increase `REPLAY_VERSION` in `index.html` and start a fresh database (or keep the old rankings frozen).
+- **Leaderboards are kept per physics version.** Changing the simulation changes how old replays play out, so each `REPLAY_VERSION` (in `index.html`) has its own boards: increasing it starts fresh leaderboards automatically, and the server rejects replays from other versions. Old runs stay in the database but are no longer shown. Increase `REPLAY_VERSION` whenever you change the physics or the ladder generator.

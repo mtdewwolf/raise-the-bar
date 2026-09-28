@@ -60,14 +60,34 @@ function createApp(opts = {}) {
     if (!p && required) throw new HttpError(401, 'Unknown player. Create a profile or check your sync code');
     return p;
   }
-  function boardStatus(board, day, playerId) {
+  // Leaderboards are kept per replay version: a physics change starts fresh boards, because
+  // runs recorded with the old physics can't be replayed (or fairly compared) any more.
+  const BK = (board) => board + '@v' + RTB.REPLAY_VERSION;
+  function boardStatus(boardName, day, playerId) {
+    const board = BK(boardName);
     const b = q.myBest.get(board, day, playerId);
     if (!b) return null;
     const { rank } = q.rankOf.get(board, day, b.height, b.height, b.achieved_at);
     return { rank, total: q.count.get(board, day).n, best: b.height, runId: b.run_id };
   }
   const achievementsOf = (p) => { try { return JSON.parse(p.achievements); } catch (e) { return []; } };
-  const profile = (p, token) => ({ name: p.name, achievements: achievementsOf(p), ...(token ? { token } : {}) });
+  const lookOf = (p) => { try { return JSON.parse(p.look || '{}'); } catch (e) { return {}; } };
+  const upgradesOf = (p) => { try { return RTB.cleanUpgrades(JSON.parse(p.upgrades || '{}')); } catch (e) { return RTB.cleanUpgrades({}); } };
+  // coins are only ever earned by verified runs, so the server can check any upgrade claim
+  const earnedBy = (playerId) => q.earned.get(playerId).n;
+  const levelSum = (up) => Object.values(RTB.cleanUpgrades(up)).reduce((a, b) => a + b, 0);
+  const profile = (p, token) => ({ name: p.name, achievements: achievementsOf(p), look: lookOf(p),
+    upgrades: upgradesOf(p), earned: earnedBy(p.id), ...(token ? { token } : {}) });
+  // cosmetic look: { slot: itemId } with short ids; the game decides what the ids mean
+  function cleanLook(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const out = {};
+    for (const slot of ['hat', 'jersey', 'band', 'back', 'suit']) {
+      const v = raw[slot];
+      if (typeof v === 'string' && /^[a-z0-9_]{1,24}$/.test(v)) out[slot] = v;
+    }
+    return out;
+  }
 
   async function readJson(req) {
     const chunks = []; let size = 0;
@@ -92,9 +112,19 @@ function createApp(opts = {}) {
     'GET /api/me': (req) => profile(auth(req, true)),
     'PATCH /api/me': async (req) => {
       const p = auth(req, true), body = await readJson(req);
-      const c = cleanName(body.name); if (c.error) throw new HttpError(400, c.error);
-      q.renamePlayer.run(c.name, p.id);
+      if (body.name == null && body.look == null) throw new HttpError(400, 'Nothing to update');
+      if (body.name != null) { const c = cleanName(body.name); if (c.error) throw new HttpError(400, c.error); q.renamePlayer.run(c.name, p.id); }
+      if (body.look != null) { const lk = cleanLook(body.look); if (!lk) throw new HttpError(400, 'Invalid look'); q.setLook.run(JSON.stringify(lk), p.id); }
       return profile(q.playerById.get(p.id));
+    },
+    // Upgrade levels are bought on the device; the server stores them if the player's verified runs
+    // have earned enough coins to pay for them.
+    'PUT /api/me/upgrades': async (req) => {
+      const p = auth(req, true), body = await readJson(req);
+      const up = RTB.cleanUpgrades(body.upgrades), earned = earnedBy(p.id);
+      if (RTB.upgradesCost(up) > earned) throw new HttpError(409, 'Not enough verified coins for those upgrades yet');
+      q.setUpgrades.run(JSON.stringify(up), p.id);
+      return { upgrades: up, earned };
     },
     // Achievements are unlocked on the device; the server keeps the union so every device sees them.
     'PUT /api/me/achievements': async (req) => {
@@ -113,6 +143,7 @@ function createApp(opts = {}) {
       const body = await readJson(req);
       const code = String(body.replay || '');
       if (!/^[A-Za-z0-9_-]{8,60000}$/.test(code)) throw new HttpError(400, 'Missing or malformed replay');
+      try { RTB.decodeReplay(code); } catch (e) { throw new HttpError(422, 'Replay could not be verified: ' + e.message); } // e.g. recorded with older physics
       const hash = crypto.createHash('sha256').update(code).digest('hex');
       const dup = q.runByHash.get(hash);
       if (dup && dup.player_id !== p.id) throw new HttpError(409, 'That run was already submitted by someone else');
@@ -122,20 +153,22 @@ function createApp(opts = {}) {
       else {
         try { v = await pool.verify(code); } catch (e) { throw new HttpError(422, 'Replay could not be verified: ' + e.message); }
         if (!v.finished) throw new HttpError(422, 'Replay does not end in a fall');
+        // the upgrades used must have been paid for by this player's earlier verified runs
+        if (RTB.upgradesCost(v.up) > earnedBy(p.id)) throw new HttpError(422, "That run used upgrades this profile hasn't earned yet");
         // daily runs only count on the daily board for today/yesterday (timezones) and the real daily seed
-        const dailyOk = v.kind === 'daily' && v.seed === RTB.dailySeed(v.day) && v.day >= today() - 1 && v.day <= today();
+        const dailyOk = v.kind === 'daily' && v.seed === RTB.dailySeed(v.day) && v.day >= today() - 1 && v.day <= today() && RTB.noUpgrades(v.up);
         v.kind = dailyOk ? 'daily' : 'endless'; if (!dailyOk) v.day = 0;
         const t = now();
-        runId = Number(q.insertRun.run(p.id, v.kind, v.day, v.seed, v.height, v.score, v.bars, v.hops, code, hash, t).lastInsertRowid);
+        runId = Number(q.insertRun.run(p.id, v.kind, v.day, v.seed, v.height, v.score, v.bars, v.hops, code, hash, t, v.coins, JSON.stringify(v.up)).lastInsertRowid);
         const boards = [['alltime', 0]]; if (v.kind === 'daily') boards.push(['daily', v.day]);
         for (const [board, day] of boards) {
-          const prev = q.best.get(board, day, p.id);
+          const prev = q.best.get(BK(board), day, p.id);
           v['improved_' + board] = !prev || v.height > prev.height;
-          if (v['improved_' + board]) q.upsertBest.run(board, day, p.id, runId, v.height, t);
+          if (v['improved_' + board]) q.upsertBest.run(BK(board), day, p.id, runId, v.height, t);
         }
       }
       return {
-        runId, height: v.height, score: v.score, bars: v.bars, hops: v.hops,
+        runId, height: v.height, score: v.score, bars: v.bars, hops: v.hops, coins: v.coins, earned: earnedBy(p.id),
         alltime: { ...boardStatus('alltime', 0, p.id), improved: !!v.improved_alltime },
         daily: v.kind === 'daily' ? { day: v.day, ...boardStatus('daily', v.day, p.id), improved: !!v.improved_daily } : null,
       };
@@ -146,13 +179,16 @@ function createApp(opts = {}) {
       const day = board === 'daily' ? Number(url.searchParams.get('day')) || today() : 0;
       const lim = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 50));
       const me = auth(req, false);
-      const entries = q.top.all(board, day, lim).map((r, i) => ({ rank: i + 1, name: r.name, height: r.height, runId: r.run_id, you: !!me && r.player_id === me.id }));
+      const entries = q.top.all(BK(board), day, lim).map((r, i) => {
+        let up = 0; try { up = levelSum(JSON.parse(r.up || '{}')); } catch (e) {}
+        return { rank: i + 1, name: r.name, height: r.height, runId: r.run_id, upgrades: up, you: !!me && r.player_id === me.id };
+      });
       let mine = null;
       if (me && !entries.some((e) => e.you)) {
         const s = boardStatus(board, day, me.id);
         if (s) mine = { rank: s.rank, name: me.name, height: s.best, runId: s.runId, you: true };
       }
-      return { board, day, total: q.count.get(board, day).n, entries, me: mine };
+      return { board, day, total: q.count.get(BK(board), day).n, entries, me: mine };
     },
   };
 
@@ -178,7 +214,7 @@ function createApp(opts = {}) {
       let fn = routes[req.method + ' ' + url.pathname], arg = null;
       const m = /^\/api\/runs\/(\d+)$/.exec(url.pathname);
       if (!fn && m && req.method === 'GET') {
-        fn = () => { const r = q.runById.get(Number(m[1])); if (!r) throw new HttpError(404, 'Run not found'); return { runId: r.id, name: r.name, height: r.height, replay: r.replay }; };
+        fn = () => { const r = q.runById.get(Number(m[1])); if (!r) throw new HttpError(404, 'Run not found'); return { runId: r.id, name: r.name, height: r.height, replay: r.replay, look: lookOf(r) }; };
       }
       if (!fn) throw new HttpError(404, 'Not found');
       send(200, await fn(req, ip, url, arg));
