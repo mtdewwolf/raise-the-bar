@@ -62,6 +62,12 @@ The physics is fully deterministic. It uses only arithmetic that gives the same 
 - **Watch replay / Race this run** after any fall.
 - **Share challenge:** copies a link with the run built in. Whoever opens it can watch your run or race your ghost on the exact same ladder. Links only work for other people once the game is hosted online (e.g. GitHub Pages), not from a local file.
 
+## Friend challenges
+
+Open **🤝 Challenge friends** to create a 24-hour group challenge, or challenge friends from a finished run. Share a short invite link or join code, race the leader's ghost with equal no-upgrade rules, compare verified results, and start a rematch. Browser and Android use the same challenge server. Weekly challenge rules stay fixed even when the public event resets.
+
+The isolated test deployment can enable labeled mock opponents and test controls. See [friend challenge setup and testing](server/FRIEND_CHALLENGES.md).
+
 ## Zones
 
 The ladder changes as you climb, and a banner announces each new zone:
