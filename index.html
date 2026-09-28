@@ -77,6 +77,12 @@
   .quip { font-size: 21px; font-style: italic; font-weight: bold; margin: 14px 0 20px; min-height: 1.4em; }
   .cause { font-size: 14px; opacity: .7; margin-top: -10px; margin-bottom: 14px; }
   button.daily { background: #2f7bff; font-size: 20px; padding: 10px 24px; }
+  .weeklycard { margin: 14px 0 8px; padding: 12px; background: #fff2b3; border: 3px solid var(--ink); border-radius: 14px; }
+  .weeklycard .eyebrow { font-size: 11px; font-weight: 900; letter-spacing: 2px; }
+  .weeklycard h2 { margin: 4px 0; font-size: 22px; }
+  .weeklycard p { font-size: 13px; margin: 5px 0; }
+  button.weekly { background: #8653cf; font-size: 17px; padding: 10px 18px; }
+  .weeklycard .reset { font-size: 11px; opacity: .8; }
   button.toggle { font-size: 14px; padding: 6px 14px; margin-top: 10px; box-shadow: 0 4px 0 var(--ink); }
   .dailyinfo { font-size: 13px; font-weight: bold; opacity: .75; min-height: 1.2em; margin-top: 2px; }
   .challenge { background: #ffd23f; border: 3px solid var(--ink); border-radius: 14px; padding: 10px 12px 12px; margin: -6px 0 16px; transform: rotate(1deg); }
@@ -192,6 +198,14 @@
     <button id="startBtn">Start</button>
     <button id="dailyBtn" class="daily">Daily Ladder</button>
     <div id="dailyInfo" class="dailyinfo"></div>
+    <section class="weeklycard" aria-labelledby="weeklyTitle">
+      <div class="eyebrow">THIS WEEK'S EVENT</div>
+      <h2 id="weeklyTitle">Weekly Ladder</h2>
+      <p id="weeklyRules"></p>
+      <button id="weeklyBtn" class="weekly">Play weekly event</button>
+      <p id="weeklyInfo"></p>
+      <div id="weeklyReset" class="reset"></div>
+    </section>
     <div class="menurow">
       <button id="lbBtn" class="secondary small">🏆 Leaderboards</button>
       <button id="achBtn" class="secondary small">🏅 Achievements <span id="achCount"></span></button>
@@ -200,7 +214,7 @@
     </div>
     <div id="profileLine" class="profile"></div>
     <button id="bloodBtn" class="secondary toggle"></button>
-    <div class="hint kb-only">Enter / Space to start &middot; D for the daily &middot; M to mute &middot; B for blood &middot; Esc to pause &middot; touch works too</div>
+    <div class="hint kb-only">Enter / Space to start &middot; D for the daily &middot; W for the weekly &middot; M to mute &middot; B for blood &middot; Esc to pause &middot; touch works too</div>
     <div class="hint touch-only">Tip: play in landscape or portrait &middot; ❚❚ button to pause</div>
   </div>
 </div>
@@ -230,7 +244,7 @@
   <div class="card wide">
     <button class="close" data-close aria-label="Close">✕</button>
     <h2>🏆 Leaderboards</h2>
-    <div class="tabs"><button id="lbDaily" class="tab on">Today</button><button id="lbAll" class="tab">All-time</button></div>
+    <div class="tabs"><button id="lbDaily" class="tab on">Today</button><button id="lbWeekly" class="tab">This week</button><button id="lbAll" class="tab">All-time</button></div>
     <div id="lbStatus" class="lbstatus"></div>
     <ol id="lbList" class="lblist"></ol>
     <details class="profilebox" id="profileBox">
@@ -252,7 +266,7 @@
     <h2>🛒 Upgrades</h2>
     <div class="wallet"><span id="shopCoins">0</span> 🪙 Chalk</div>
     <div id="shopList" class="shoplist"></div>
-    <div class="lbstatus">Earn Chalk on every run: 10 per metre climbed and 2 per bar. The Daily Ladder is always played without upgrades, so it stays a pure skill contest.</div>
+    <div class="lbstatus">Earn Chalk on every run: 10 per metre climbed and 2 per bar. Daily and Weekly Ladders are always played without upgrades, so they stay pure skill contests.</div>
   </div>
 </div>
 
@@ -395,7 +409,7 @@ function windAccel(g, h) {
 function addBar(g) {
   const n = g.bars.length, r = g.rng;
   if (n === 0) {
-    g.bars.push({ i: 0, y: CFG.START_BAR_Y, x0: -1.25, x1: 1.25, o: 0, vo: 0, f: 0, hit: 0, type: 'normal', ox: 0, vox: 0, fx: 0 });
+    g.bars.push({ i: 0, y: CFG.START_BAR_Y, x0: -1.25, x1: 1.25, o: 0, vo: 0, f: 0, hit: 0, type: g.weekly && g.weekly.id === 'butter' ? 'butter' : 'normal', ox: 0, vox: 0, fx: 0 });
     return;
   }
   const prev = g.bars[n - 1];
@@ -409,6 +423,7 @@ function addBar(g) {
   gap += 0.08 * smoothstep(40, 52, hNew);
   // hops go much higher in low gravity, so space spreads the bars out
   gap *= 1 + 0.25 * (1 - gravityScale(hNew)) / 0.58;
+  if (g.weekly && g.weekly.id === 'one-hand') gap *= 0.8;
   const len = n <= 4 ? 2.5 : clamp(lerp(2.3, 1.0, d) + (r() - 0.5) * 0.5, 0.9, 2.6);
   const pc = (prev.x0 + prev.x1) / 2, plen = prev.x1 - prev.x0;
   const maxOff = n <= 4 ? 0 : 0.06 + 0.5 * d;
@@ -423,6 +438,7 @@ function addBar(g) {
   else if (z === 2) type = roll < 0.3 ? 'wobbly' : roll < 0.58 ? 'icy' : 'normal';
   else if (z === 3) type = roll < 0.2 ? 'wobbly' : roll < 0.35 ? 'icy' : 'normal';
   if (prev.type === 'icy' && type === 'icy') type = 'normal'; // never two icy bars in a row
+  if (g.weekly && g.weekly.id === 'butter') type = 'butter';
   g.bars.push({ i: n, y, x0: c - len / 2, x1: c + len / 2, o: 0, vo: 0, f: 0, hit: 0, type, ox: 0, vox: 0, fx: 0 });
 }
 function genBars(g, upto) { while (g.bars[g.bars.length - 1].y < upto) addBar(g); }
@@ -455,7 +471,7 @@ const noUpgrades = (u) => UPGRADES.every(({ id }) => !(u && u[id]));
 function runCoins(g) { return Math.floor(g.maxHeight * 10 + g.maxBar * 2); }
 
 // ---------------- Game ----------------
-function newGame(seed, state, upgrades) {
+function newGame(seed, state, upgrades, rules) {
   const g = {
     seed, rng: mulberry32(seed), trng: mulberry32(seed ^ 0x9e3779b9), bars: [], state: state || 'play', t: 0,
     body: makeBody(CFG.START_BAR_Y), hands: [mkHand(0), mkHand(1)],
@@ -467,10 +483,11 @@ function newGame(seed, state, upgrades) {
     nextMilestone: 5, pullTime: 0, n: 0, zone: 0, wind: 0, grav: 1,
   };
   { const wr = mulberry32(seed ^ 0x5bd1e995); g.windP = [wr() * 6.283, wr() * 6.283, wr() * 6.283, wr() < 0.5 ? -1 : 1]; }
+  g.weekly = rules && rules.kind === 'weekly' ? weeklyEvent(rules.day) : null;
   g.up = cleanUpgrades(upgrades);
   addBar(g); genBars(g, 14);
   g.hands[0].grip = { bar: g.bars[0], x: -0.27 };
-  g.hands[1].grip = { bar: g.bars[0], x: 0.27 };
+  if (!g.weekly || g.weekly.id !== 'one-hand') g.hands[1].grip = { bar: g.bars[0], x: 0.27 };
   const st = g.state; g.state = 'menu';
   for (let i = 0; i < 120; i++) stepSim(g, CFG.DT); // settle
   g.state = st; g.events.length = 0; g.t = 0; g.n = 0; g.stam = 100;
@@ -538,6 +555,7 @@ function stepSim(g, dt) {
   const B = g.body, P = B.pts, H = g.hands;
   const hNow = P[HEAD].y - ZONE_H0;
   g.grav = g.state === 'menu' ? 1 : gravityScale(hNow);
+  if (g.weekly && g.weekly.id === 'low-gravity' && g.state !== 'menu') g.grav *= 0.55;
   g.wind = g.state === 'menu' ? 0 : windAccel(g, hNow);
   const Gv = CFG.G * g.grav, Wa = g.wind;
   const alive = g.state === 'play' || g.state === 'menu';
@@ -546,6 +564,9 @@ function stepSim(g, dt) {
   const s = clamp(g.stam / 100, 0, 1);
   const strength = 0.2 + 0.8 * (1 - pow175(1 - s));
   if (!alive) for (const h of H) h.key = false;
+  const oneHand = !!g.weekly && g.weekly.id === 'one-hand';
+  // Either key/touch pad controls the left hand; the right hand can never pull or catch.
+  if (oneHand) { H[0].key = H[0].key || H[1].key; H[1].key = false; H[1].grip = null; H[1].reachT = 0; }
   const both = H[0].key && H[1].key;
 
   // ---- key edges: releasing a contracted, pulling arm lets go & throws the hand upward
@@ -571,9 +592,9 @@ function stepSim(g, dt) {
     const sh = P[h.sh], hp = P[h.idx];
     const dx = hp.x - sh.x, dy = hp.y - sh.y, d = hyp(dx, dy) || 1e-6;
     h.pullF = 0;
-    if (!alive) continue;
+    if (!alive || (oneHand && h.side === 1)) continue;
     if (h.grip && h.key) {
-      const fmax = CFG.PULL_MAX * (both ? CFG.BOTH_BONUS : 1) * strength * WEIGHT * (1 + 0.08 * g.up.pull);
+      const fmax = CFG.PULL_MAX * (oneHand ? 2.0 : both ? CFG.BOTH_BONUS : 1) * strength * WEIGHT * (1 + 0.08 * g.up.pull);
       const f = Math.min(CFG.PULL_K * Math.max(0, d - CFG.PULL_TARGET), fmax);
       sh.fx += dx / d * f; sh.fy += dy / d * f;
       h.pullF = f;
@@ -743,13 +764,13 @@ function stepSim(g, dt) {
       h.load += (inst - h.load) * Math.min(1, dt / 0.12);
       h.grip.bar.f -= clamp(g.Fs.y / nG, -3 * WEIGHT, 3 * WEIGHT);
       h.grip.bar.fx -= clamp(g.Fs.x / nG, -3 * WEIGHT, 3 * WEIGHT);
-      const gripMax = gripBase * (h.grip.bar.type === 'icy' ? 0.62 : 1) * (1 + 0.1 * g.up.grip);
+      const gripMax = gripBase * (h.grip.bar.type === 'butter' ? 0.7 : h.grip.bar.type === 'icy' ? 0.62 : 1) * (1 + 0.1 * g.up.grip);
       if (alive && h.graceT <= 0 && h.load > gripMax) {
         const bar = h.grip.bar;
         release(g, h, false);
         h.cool = 0.25; h.exclBar = bar; h.exclT = 0.4;
         g.lastSlipExhausted = s < 0.15;
-        g.events.push({ type: 'slip', side: h.side, x: P[h.idx].x, y: P[h.idx].y, exhausted: s < 0.15, icy: bar.type === 'icy' });
+        g.events.push({ type: 'slip', side: h.side, x: P[h.idx].x, y: P[h.idx].y, exhausted: s < 0.15, icy: bar.type === 'icy', butter: bar.type === 'butter' });
       }
     }
   }
@@ -774,7 +795,7 @@ function stepSim(g, dt) {
   // ---- catching: a free hand passing through a bar grabs it (if not moving too fast)
   if (alive) {
     for (const h of H) {
-      if (h.grip || h.cool > 0) continue;
+      if (h.grip || h.cool > 0 || (oneHand && h.side === 1)) continue;
       const hp = P[h.idx];
       const lo = Math.min(hp.py, hp.y) - 0.05, hi = Math.max(hp.py, hp.y) + 0.05;
       const vx = (hp.x - hp.px) / dt, vy = (hp.y - hp.py) / dt, sp = hyp(vx, vy);
@@ -818,6 +839,8 @@ function stepSim(g, dt) {
     if (nGr > 0) g.hangT += dt;
     const icy = (H[0].grip && H[0].grip.bar.type === 'icy' ? 1 : 0) + (H[1].grip && H[1].grip.bar.type === 'icy' ? 1 : 0);
     drain += icy * 6;
+    const butter = H.filter((h) => h.grip && h.grip.bar.type === 'butter').length;
+    drain += butter * 4;
     if (pulling === 0 && icy) { /* no recovering while your hands freeze */ }
     else if (pulling === 0) {
       if (nGr === 2) { const r = 15 - 1.0 * g.hangT; if (r > 0) rec += r; else drain += Math.min(-r, 5); }
@@ -890,7 +913,8 @@ function throwReady(g, h) {
 // A run is fully determined by its ladder seed and the per-step S/K inputs, so a replay is
 // just the seed plus the steps where the inputs changed. Format (bytes, then base64url):
 // [version][kind][seed u32][day varint][total steps varint][n][n upgrade levels][changes: varint(delta*4 + bits)...]
-const REPLAY_VERSION = 2; // bump whenever the simulation changes: old replays would no longer reproduce
+const REPLAY_VERSION = 2; // unchanged endless/daily physics and boards
+const WEEKLY_REPLAY_VERSION = 3; // weekly rules only; old servers reject these instead of ranking them all-time
 function pushVarint(out, v) { while (v >= 128) { out.push((v & 127) | 128); v = Math.floor(v / 128); } out.push(v); }
 function readVarint(buf, pos) {
   let v = 0, mul = 1, b;
@@ -922,7 +946,7 @@ function fromB64(str) {
 }
 // rec = { seed, kind: 'endless'|'daily', day, steps, changes: [[step, bits], ...] }
 function encodeReplay(rec) {
-  const out = [REPLAY_VERSION, rec.kind === 'daily' ? 1 : 0];
+  const out = [rec.kind === 'weekly' ? WEEKLY_REPLAY_VERSION : REPLAY_VERSION, rec.kind === 'weekly' ? 2 : rec.kind === 'daily' ? 1 : 0];
   const sd = rec.seed >>> 0; out.push(sd >>> 24, (sd >>> 16) & 255, (sd >>> 8) & 255, sd & 255);
   pushVarint(out, rec.day || 0); pushVarint(out, rec.steps);
   const up = cleanUpgrades(rec.up); out.push(UPGRADES.length); for (const { id } of UPGRADES) out.push(up[id]);
@@ -932,11 +956,14 @@ function encodeReplay(rec) {
 }
 function decodeReplay(str) {
   const b = fromB64(str);
-  if (b[0] !== REPLAY_VERSION) throw new Error('unsupported replay version');
-  const kind = b[1] === 1 ? 'daily' : 'endless';
+  const weekly = b[0] === WEEKLY_REPLAY_VERSION && b[1] === 2;
+  if (!weekly && b[0] !== REPLAY_VERSION) throw new Error('unsupported replay version');
+  if (!weekly && b[1] !== 0 && b[1] !== 1) throw new Error('unsupported replay kind');
+  const kind = weekly ? 'weekly' : b[1] === 1 ? 'daily' : 'endless';
   const seed = ((b[2] << 24) | (b[3] << 16) | (b[4] << 8) | b[5]) >>> 0;
   const pos = { i: 6 };
   const day = readVarint(b, pos), steps = readVarint(b, pos);
+  if (weekly) weeklyEvent(day); // rejects non-Monday, non-integer and out-of-range periods
   const nUp = b[pos.i++], upRaw = {};
   if (!(nUp >= 0 && nUp <= 16) || pos.i + nUp > b.length) throw new Error('truncated');
   for (let k = 0; k < nUp; k++) { const id = UPGRADES[k] && UPGRADES[k].id, v = b[pos.i++]; if (id) { if (v > UPGRADE_MAX) throw new Error('bad upgrade level'); upRaw[id] = v; } }
@@ -962,7 +989,7 @@ function applyPlayback(g, pb) {
 }
 // Fast-forward a whole replay without drawing it. Returns how high that run got.
 function simulateReplay(rec) {
-  const g = newGame(rec.seed, 'play', rec.up), pb = makePlayback(rec);
+  const g = newGame(rec.seed, 'play', rec.up, rec), pb = makePlayback(rec);
   const cap = rec.steps + 600;
   while (g.n < cap && !(g.state === 'dying' && g.deathT > 0.2)) { applyPlayback(g, pb); stepSim(g, CFG.DT); g.events.length = 0; }
   return { maxHeight: g.maxHeight, bars: g.maxBar, died: g.state === 'dying' };
@@ -976,9 +1003,30 @@ function dailySeed(day) {
   return h >>> 0;
 }
 
+// Weekly events use a Monday UTC day number as their immutable period key.
+// Keep this order stable: recorded replays derive their rules from the week.
+const WEEKLY_EPOCH_DAY = 271; // Monday, 2026-09-28
+const WEEK_MS = 7 * 86400000;
+const WEEKLY_EVENTS = [
+  { id: 'butter', name: 'Butter Bars', description: 'Slippery golden bars: weaker grip and faster stamina drain.' },
+  { id: 'low-gravity', name: 'Low Gravity', description: '55% gravity from the first bar. Time your floaty catches.' },
+  { id: 'one-hand', name: 'One Hand Only', description: 'Left hand only! Either key or touch pad pulls. Stronger arm, closer bars.' },
+];
+function weekDay(ms) {
+  const day = dayNumber(ms);
+  return day - ((day - WEEKLY_EPOCH_DAY) % 7 + 7) % 7;
+}
+function weeklySeed(day) { return dailySeed(day ^ 0x5745454b); }
+function weeklyEvent(day) {
+  if (!Number.isSafeInteger(day) || day < 5 || day > 10000000 || (day - WEEKLY_EPOCH_DAY) % 7 !== 0) throw new Error('invalid weekly period');
+  const index = ((day - WEEKLY_EPOCH_DAY) / 7 % WEEKLY_EVENTS.length + WEEKLY_EVENTS.length) % WEEKLY_EVENTS.length;
+  const startsAt = DAILY_EPOCH + (day - 1) * 86400000;
+  return { ...WEEKLY_EVENTS[index], day, seed: weeklySeed(day), startsAt, endsAt: startsAt + WEEK_MS };
+}
+
 globalThis.RTB = { CFG, newGame, stepSim, score, dist, throwReady, encodeReplay, decodeReplay, makePlayback, playbackInputs,
   applyPlayback, simulateReplay,
-  dayNumber, dailySeed, REPLAY_VERSION, ZONES, zoneAt, UPGRADES, UPGRADE_MAX, UPGRADE_COST, cleanUpgrades, upgradesCost, noUpgrades, runCoins,
+  dayNumber, dailySeed, weekDay, weeklySeed, weeklyEvent, WEEKLY_EVENTS, WEEKLY_REPLAY_VERSION, REPLAY_VERSION, ZONES, zoneAt, UPGRADES, UPGRADE_MAX, UPGRADE_COST, cleanUpgrades, upgradesCost, noUpgrades, runCoins,
   HEAD, LSH, RSH, LH, RH };
 // @sim-end
 
@@ -1092,6 +1140,7 @@ if (typeof document !== 'undefined') (function boot() {
     if (k === 'b' || k === 'B') { setBlood(!blood); flash(blood ? 'BLOOD ON' : 'BLOOD OFF'); return; }
     if (mode === 'menu' && (k === 'Enter' || k === ' ')) { e.preventDefault(); if (challenge) raceReplay(challenge.rec, 'RIVAL'); else startEndless(); }
     else if (mode === 'menu' && (k === 'd' || k === 'D')) startDaily();
+    else if (mode === 'menu' && (k === 'w' || k === 'W')) startWeekly();
     else if (mode === 'over' && (k === 'Enter' || k === ' ' || k === 'r' || k === 'R')) { e.preventDefault(); if (overPrimary) overPrimary(); }
     else if (mode === 'replay' && (k === 'Enter' || k === ' ' || k === 'Escape')) { e.preventDefault(); skipReplay(); }
     else if (mode === 'fallcam' && (k === 'Enter' || k === ' ' || k === 'r' || k === 'R' || k === 'Escape')) { e.preventDefault(); endFallCam(); }
@@ -1161,7 +1210,31 @@ if (typeof document !== 'undefined') (function boot() {
   let slowT = 0;         // slow-motion time left (real seconds)
   let challenge = null;  // replay received through a link: { rec, code, max }
 
-  const today = dayNumber(Date.now());
+  let serverTimeOffset = 0;
+  const eventNow = () => Date.now() + serverTimeOffset;
+  let today = dayNumber(eventNow());
+  function currentWeek() { return weeklyEvent(weekDay(eventNow())); }
+  function loadWeekly(day) {
+    try {
+      const w = JSON.parse(localStorage.getItem('rtb_weekly_' + WEEKLY_REPLAY_VERSION + '_' + day) || 'null');
+      if (w && w.day === day && Number.isFinite(w.best) && w.best >= 0) return w;
+    } catch (e) {}
+    return { day, best: 0, replay: null };
+  }
+  function saveWeekly(w) {
+    try { localStorage.setItem('rtb_weekly_' + WEEKLY_REPLAY_VERSION + '_' + w.day, JSON.stringify(w)); } catch (e) {}
+  }
+  let weekly = loadWeekly(currentWeek().day);
+  function refreshWeekly() {
+    const event = currentWeek();
+    const mins = Math.max(0, Math.ceil((event.endsAt - eventNow()) / 60000));
+    const days = Math.floor(mins / 1440), hours = Math.floor(mins % 1440 / 60);
+    $('weeklyTitle').textContent = event.name + ' Week';
+    $('weeklyRules').textContent = event.description;
+    const w = loadWeekly(event.day);
+    $('weeklyInfo').textContent = (w.best > 0 ? "This week's best: " + w.best.toFixed(1) + 'm · race your ghost' : 'Same ladder and rules for everyone') + ' · no upgrades';
+    $('weeklyReset').textContent = 'Resets in ' + days + 'd ' + hours + 'h ' + mins % 60 + 'm · Monday 00:00 UTC';
+  }
   let tutDone = false;
   try { tutDone = localStorage.getItem('rtb_tut') === '1'; } catch (e) {}
   function loadDaily() {
@@ -1191,16 +1264,17 @@ if (typeof document !== 'undefined') (function boot() {
 
   function makeGhost(r, name, lk) {
     if (!r) return null;
-    return { g: newGame(r.seed, 'play', r.up), pb: makePlayback(r), name, max: simulateReplay(r).maxHeight, look: lk ? cleanLook(lk) : null };
+    return { g: newGame(r.seed, 'play', r.up, r), pb: makePlayback(r), name, max: simulateReplay(r).maxHeight, look: lk ? cleanLook(lk) : null };
   }
   function startRun(cfg) {
     initAudio();
     run = cfg;
-    const up = cfg.kind === 'daily' ? {} : wallet.levels;
-    g = newGame(cfg.seed, 'play', up);
-    gh = makeGhost(cfg.ghost, cfg.ghostName, cfg.ghostLook);
-    const rk = cfg.ghost ? cfg.ghost.kind : cfg.kind === 'daily' ? 'daily' : 'endless';
+    const rk = cfg.ghost ? cfg.ghost.kind : cfg.kind;
     const rd = cfg.ghost ? cfg.ghost.day : cfg.day || 0;
+    const up = rk === 'daily' || rk === 'weekly' ? {} : wallet.levels;
+    g = newGame(cfg.seed, 'play', up, { kind: rk, day: rd });
+    if (rk === 'weekly') weekly = loadWeekly(rd);
+    gh = makeGhost(cfg.ghost, cfg.ghostName, cfg.ghostLook);
     rec = { seed: cfg.seed, kind: rk, day: rd, steps: 0, changes: [], last: 0, up: cleanUpgrades(up) };
     runHops = 0;
     resetFx(); mode = 'play'; hideOverlays();
@@ -1208,21 +1282,30 @@ if (typeof document !== 'undefined') (function boot() {
   }
   function startEndless() { startRun({ kind: 'endless', seed: (Math.random() * 4294967296) >>> 0 }); }
   function startDaily() {
+    today = dayNumber(eventNow());
     daily = loadDaily();
     let ghost = null;
     if (daily.replay) { try { ghost = decodeReplay(daily.replay); } catch (e) { ghost = null; } }
     startRun({ kind: 'daily', seed: dailySeed(today), day: today, ghost, ghostName: 'YOUR BEST', ghostLook: look });
   }
+  function startWeekly() {
+    const event = currentWeek();
+    weekly = loadWeekly(event.day);
+    let ghost = null;
+    if (weekly.replay) { try { ghost = decodeReplay(weekly.replay); } catch (e) {} }
+    startRun({ kind: 'weekly', seed: event.seed, day: event.day, ghost, ghostName: 'YOUR BEST', ghostLook: look });
+  }
   function raceReplay(r, name, lk) { startRun({ kind: 'challenge', seed: r.seed, day: r.day, ghost: r, ghostName: name, ghostLook: lk }); }
   function retry() {
     if (!run || run.kind === 'endless') startEndless();
     else if (run.kind === 'daily') startDaily();
+    else if (run.kind === 'weekly') startWeekly();
     else startRun(run);
   }
   function startReplay(r, name, lk) {
     initAudio();
     watching = { rec: r, name, look: lk };
-    g = newGame(r.seed, 'play', r.up); pb = makePlayback(r); gh = null;
+    g = newGame(r.seed, 'play', r.up, r); pb = makePlayback(r); gh = null;
     resetFx(); mode = 'replay'; hideOverlays();
     cam.y = g.body.pts[HEAD].y - 0.6;
   }
@@ -1233,12 +1316,14 @@ if (typeof document !== 'undefined') (function boot() {
     $('over').classList.add('hidden'); $('menu').classList.remove('hidden');
   }
   function refreshMenu() {
+    today = dayNumber(eventNow());
+    refreshWeekly();
     daily = loadDaily();
     $('dailyBtn').textContent = 'Daily Ladder #' + today;
     $('dailyInfo').textContent = (daily.best > 0 ? "Today's best: " + daily.best.toFixed(1) + 'm · race your ghost' : 'Same ladder for everyone today') + ' · no upgrades';
     if (challenge) {
       $('challenge').style.display = 'block'; $('menu').classList.add('has-challenge');
-      const where = challenge.rec.kind === 'daily' ? 'Daily Ladder #' + challenge.rec.day : 'their ladder';
+      const where = challenge.rec.kind === 'weekly' ? weeklyEvent(challenge.rec.day).name + ' Week' : challenge.rec.kind === 'daily' ? 'Daily Ladder #' + challenge.rec.day : 'their ladder';
       $('cText').textContent = 'Someone climbed ' + challenge.max.toFixed(1) + 'm on ' + where + '. Can you beat them?';
     } else { $('challenge').style.display = 'none'; $('menu').classList.remove('has-challenge'); }
     $('achCount').textContent = unlocked.size + '/' + ACH.length;
@@ -1248,6 +1333,7 @@ if (typeof document !== 'undefined') (function boot() {
   }
   $('startBtn').onclick = startEndless;
   $('dailyBtn').onclick = startDaily;
+  $('weeklyBtn').onclick = startWeekly;
   $('raceBtn').onclick = () => raceReplay(challenge.rec, 'RIVAL');
   $('watchBtn').onclick = () => startReplay(challenge.rec, 'RIVAL');
 
@@ -1294,6 +1380,7 @@ if (typeof document !== 'undefined') (function boot() {
     try {
       const health = await api('GET', '/api/health');
       if (!health || health.ok !== true) throw new Error('Unexpected leaderboard response');
+      if (Number.isFinite(health.time)) serverTimeOffset = health.time - Date.now();
       online = 'online';
     }
     catch (e) { online = apiExplicit ? 'offline' : 'off'; } // a guessed same-origin server that isn't there is just "no server"
@@ -1358,7 +1445,7 @@ if (typeof document !== 'undefined') (function boot() {
           const r = results[code];
           if (r && !r.error) {
             if (r.earned > wallet.earned) { wallet.earned = r.earned; store.set('rtb_wallet', wallet); }
-            if ((r.alltime && r.alltime.rank <= 10) || (r.daily && r.daily.rank <= 10)) unlock('top10');
+            if ((r.alltime && r.alltime.rank <= 10) || (r.daily && r.daily.rank <= 10) || (r.weekly && r.weekly.rank <= 10)) unlock('top10');
             if (r.daily && r.daily.rank === 1) unlock('daily_champ');
           }
         }
@@ -1613,9 +1700,15 @@ if (typeof document !== 'undefined') (function boot() {
     try { drawGuy(previewG, look, true); } finally { ctx = saved; }
   }
   $('lbDaily').onclick = () => { lbBoard = 'daily'; loadBoard(); };
+  $('lbWeekly').onclick = () => { lbBoard = 'weekly'; loadBoard(); };
   $('lbAll').onclick = () => { lbBoard = 'alltime'; loadBoard(); };
 
+  let boardRequest = 0;
   async function loadBoard() {
+    const request = ++boardRequest, board = lbBoard;
+    today = dayNumber(eventNow());
+    const event = currentWeek();
+    $('lbWeekly').classList.toggle('on', board === 'weekly');
     $('lbDaily').classList.toggle('on', lbBoard === 'daily'); $('lbAll').classList.toggle('on', lbBoard === 'alltime');
     $('lbDaily').textContent = 'Today';
     const list = $('lbList'), status = $('lbStatus');
@@ -1629,10 +1722,12 @@ if (typeof document !== 'undefined') (function boot() {
     }
     status.textContent = 'Loading…';
     try {
-      const qs = lbBoard === 'daily' ? '?board=daily&day=' + today : '?board=alltime';
+      const qs = board === 'weekly' ? '?board=weekly&day=' + event.day : board === 'daily' ? '?board=daily&day=' + today : '?board=alltime';
       const d = await api('GET', '/api/leaderboard' + qs + '&limit=50', null, true);
-      if (panel !== 'lb') return;
-      status.textContent = d.total ? d.total + ' climber' + (d.total === 1 ? '' : 's') + (lbBoard === 'daily' ? ' on Daily Ladder #' + today : ' all-time') : 'No runs yet. Be the first!';
+      if (panel !== 'lb' || request !== boardRequest) return;
+      if (board === 'weekly' && d.board !== 'weekly') throw new Error('The server needs the weekly events update');
+      const where = board === 'weekly' ? ' · ' + event.name + ' Week · resets Monday 00:00 UTC' : board === 'daily' ? ' on Daily Ladder #' + today : ' all-time';
+      status.textContent = (d.total ? d.total + ' climber' + (d.total === 1 ? '' : 's') : 'No runs yet. Be the first!') + where;
       const rows = d.entries.slice(); if (d.me) rows.push(null, d.me);
       for (const e of rows) {
         const li = document.createElement('li');
@@ -1649,7 +1744,7 @@ if (typeof document !== 'undefined') (function boot() {
         li.lastChild.title = 'Race this ghost'; li.children[3].title = 'Watch this run';
         list.appendChild(li);
       }
-    } catch (e) { status.textContent = "Couldn't load the leaderboard: " + e.message; }
+    } catch (e) { if (request === boardRequest) status.textContent = "Couldn't load the leaderboard: " + e.message; }
   }
   async function playFromBoard(e, race) {
     try {
@@ -1693,7 +1788,7 @@ if (typeof document !== 'undefined') (function boot() {
   function replayUrl(code) { return (androidApp ? androidApp.shareBaseUrl() : location.href.split('#')[0]) + '#r=' + code; }
   async function shareRun(r, height) {
     const code = encodeReplay(r), url = replayUrl(code);
-    const where = r.kind === 'daily' ? 'Daily Ladder #' + r.day : 'Raising the Bar';
+    const where = r.kind === 'weekly' ? weeklyEvent(r.day).name + ' Week' : r.kind === 'daily' ? 'Daily Ladder #' + r.day : 'Raising the Bar';
     const text = 'I climbed ' + height.toFixed(1) + 'm on ' + where + '. Think you can beat my ghost?';
     const local = location.protocol === 'file:';
     unlock('share');
@@ -1716,6 +1811,15 @@ if (typeof document !== 'undefined') (function boot() {
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   }
   readHashReplay(); refreshMenu(); initOnline();
+  let displayedWeek = currentWeek().day;
+  setInterval(() => {
+    if (mode === 'menu') refreshMenu();
+    const day = currentWeek().day;
+    if (day !== displayedWeek) {
+      displayedWeek = day;
+      if (panel === 'lb' && lbBoard === 'weekly') loadBoard();
+    }
+  }, 1000);
 
   const QUIPS = [
     'BAR NONE? More like BARF.', 'You raised the bar too far.', 'Gravity wins again.', 'Absolutely no pull-up.',
@@ -1741,6 +1845,7 @@ if (typeof document !== 'undefined') (function boot() {
   }
   function modeLabel() {
     if (!run) return '';
+    if (rec && rec.kind === 'weekly') return weeklyEvent(rec.day).name.toUpperCase() + ' WEEK';
     if (run.kind === 'daily') return 'DAILY LADDER #' + run.day;
     if (run.kind === 'challenge') return 'GHOST RACE vs ' + run.ghostName;
     return 'ENDLESS';
@@ -1751,12 +1856,17 @@ if (typeof document !== 'undefined') (function boot() {
     const h = g.maxHeight;
     rec.steps = g.n;
     lastRec = { seed: rec.seed, kind: rec.kind, day: rec.day, steps: rec.steps, changes: rec.changes, up: rec.up };
-    if (h > best + 0.05) { best = h; saveBest(); newBestThisRun = true; }
+    if (rec.kind !== 'weekly' && h > best + 0.05) { best = h; saveBest(); newBestThisRun = true; }
     let bestLbl = 'BEST', bestVal = best;
     if (rec.kind === 'daily' && rec.day === today) {
       daily = loadDaily();
       if (h > daily.best) { daily.best = h; daily.replay = encodeReplay(lastRec); saveDaily(); newBestThisRun = true; }
       bestLbl = "TODAY'S BEST"; bestVal = daily.best;
+    }
+    if (rec.kind === 'weekly') {
+      weekly = loadWeekly(rec.day);
+      if (h > weekly.best) { weekly.best = h; weekly.replay = encodeReplay(lastRec); saveWeekly(weekly); newBestThisRun = true; }
+      bestLbl = 'WEEKLY BEST'; bestVal = weekly.best;
     }
     $('oMode').textContent = modeLabel();
     $('oTitle').textContent = 'YOU FELL';
@@ -1795,8 +1905,9 @@ if (typeof document !== 'undefined') (function boot() {
         if (res.earned > wallet.earned) { wallet.earned = res.earned; saveWallet(); }
         const parts = [];
         if (res.daily) parts.push('#' + res.daily.rank + ' today' + (res.daily.improved ? '' : ' (best ' + res.daily.best.toFixed(1) + 'm)'));
-        parts.push('#' + res.alltime.rank + ' all-time' + (res.alltime.improved ? '' : ' (best ' + res.alltime.best.toFixed(1) + 'm)'));
-        rankEl.textContent = '🏆 ' + parts.join(' · ') + ((res.alltime.improved || (res.daily && res.daily.improved)) ? ' · new personal best!' : '');
+        if (res.weekly) parts.push('#' + res.weekly.rank + ' this week' + (res.weekly.improved ? '' : ' (best ' + res.weekly.best.toFixed(1) + 'm)'));
+        if (res.alltime) parts.push('#' + res.alltime.rank + ' all-time' + (res.alltime.improved ? '' : ' (best ' + res.alltime.best.toFixed(1) + 'm)'));
+        rankEl.textContent = '🏆 ' + parts.join(' · ') + (((res.alltime && res.alltime.improved) || (res.daily && res.daily.improved) || (res.weekly && res.weekly.improved)) ? ' · new personal best!' : '');
       });
     }
     setButtons(btn('Try Again', retry), [
@@ -1804,7 +1915,7 @@ if (typeof document !== 'undefined') (function boot() {
       btn('👻 Race this run', () => raceReplay(r, 'YOUR GHOST', look)),
       btn('🔗 Share challenge', () => shareRun(r, h)),
       btn('🛒 Upgrades', () => openPanel('shop')),
-      btn('🏆 Leaderboards', () => openPanel('lb')),
+      btn('🏆 Leaderboards', () => { if (r.kind === 'weekly') lbBoard = 'weekly'; openPanel('lb'); }),
       btn('Main menu', toMenu),
     ]);
     $('oHint').textContent = 'Enter / Space / R to retry';
@@ -1814,7 +1925,7 @@ if (typeof document !== 'undefined') (function boot() {
     mode = 'over';
     const r = watching.rec, h = g.maxHeight, own = watching.name === 'YOU';
     run = null;
-    $('oMode').textContent = r.kind === 'daily' ? 'DAILY LADDER #' + r.day : 'REPLAY';
+    $('oMode').textContent = r.kind === 'weekly' ? weeklyEvent(r.day).name.toUpperCase() + ' WEEK' : r.kind === 'daily' ? 'DAILY LADDER #' + r.day : 'REPLAY';
     $('oTitle').textContent = own ? 'INSTANT REPLAY' : 'THEIR RUN';
     $('oHeight').textContent = h.toFixed(1) + 'm';
     $('oBestLbl').textContent = 'YOUR BEST';
@@ -1895,7 +2006,7 @@ if (typeof document !== 'undefined') (function boot() {
         else SFX.pull();
         break;
       case 'slip':
-        SFX.slip(); buzz(40); addText(e.x, e.y + 0.1, e.icy ? 'TOO ICY!' : e.exhausted ? 'NO GRIP!' : 'SLIP!', e.icy ? '#9fe3ff' : '#ff6b6b', 26); say(pick(['WHOA!', 'NOPE!', 'UH OH', 'AAH!']));
+        SFX.slip(); buzz(40); addText(e.x, e.y + 0.1, e.butter ? 'BUTTER FINGERS!' : e.icy ? 'TOO ICY!' : e.exhausted ? 'NO GRIP!' : 'SLIP!', e.icy ? '#9fe3ff' : '#ff6b6b', 26); say(pick(['WHOA!', 'NOPE!', 'UH OH', 'AAH!']));
         break;
       case 'fumble':
         SFX.fumble(); addText(e.x, e.y + 0.1, 'FUMBLE!', '#ff9f43', 22); puff(e.x, e.y, 5, '#ffd9a0', 1.5, 0.03);
@@ -2113,7 +2224,7 @@ if (typeof document !== 'undefined') (function boot() {
       const ended = g.state === 'dying' && (g.deathT > 1.5 || (g.floorHit && g.deathT > 0.8));
       if (mode === 'play' && ended) startFallCam();
       else if (mode === 'replay' && (ended || g.n > watching.rec.steps + 600)) showReplayEnd();
-      if (mode === 'play' && !prevBestFlag && best > 2 && g.maxHeight > best && g.state === 'play') {
+      if (mode === 'play' && !prevBestFlag && currentBest() > 2 && g.maxHeight > currentBest() && g.state === 'play') {
         prevBestFlag = true; addText(g.body.pts[HEAD].x, g.body.pts[HEAD].y + 0.8, 'NEW BEST!', '#ff7ad9', 34); SFX.milestone();
       }
       if (mode === 'play' && g.state === 'play' && !tutDone && g.maxBar >= 4) {
@@ -2313,7 +2424,7 @@ if (typeof document !== 'undefined') (function boot() {
         ctx.fillStyle = '#3b2412';
         ctx.fillRect(b.x0 - 0.05, b.y - 0.07, 0.07, 0.14); ctx.fillRect(b.x1 - 0.02, b.y - 0.07, 0.07, 0.14);
       }
-      const main = t === 'icy' ? '#7fd8ff' : t === 'wobbly' ? '#8a4b1f' : '#23263a';
+      const main = t === 'butter' ? '#e8b817' : t === 'icy' ? '#7fd8ff' : t === 'wobbly' ? '#8a4b1f' : '#23263a';
       ctx.strokeStyle = main; ctx.lineWidth = 0.055;
       ctx.beginPath(); ctx.moveTo(x0, t === 'wobbly' ? y : b.y); ctx.quadraticCurveTo((x0 + x1) / 2, y * 2 - b.y, x1, t === 'wobbly' ? y : b.y); ctx.stroke();
       ctx.strokeStyle = b.hit > 0.05 ? 'rgba(255,240,160,' + (0.4 + b.hit * 0.6) + ')' : t === 'icy' ? 'rgba(255,255,255,0.9)' : 'rgba(200,210,230,0.55)'; ctx.lineWidth = 0.015;
@@ -2505,6 +2616,7 @@ if (typeof document !== 'undefined') (function boot() {
   }
 
   function currentBest() {
+    if (g.weekly) return weekly.best;
     if (run && run.kind === 'daily') return daily.best;
     return best;
   }
@@ -2796,6 +2908,7 @@ if (typeof document !== 'undefined') (function boot() {
     ctx.textAlign = 'right';
     let bLbl = 'BEST', bVal = best;
     if (mode === 'replay') { bLbl = 'YOUR BEST'; }
+    else if (g.weekly) { bLbl = "WEEKLY BEST"; bVal = weekly.best; }
     else if (run && run.kind === 'daily') { bLbl = "TODAY'S BEST"; bVal = daily.best; }
     else if (gh) { bLbl = gh.name; bVal = gh.max; }
     const ahead = mode !== 'replay' && g.maxHeight > bVal && bVal > 0;
@@ -2807,7 +2920,7 @@ if (typeof document !== 'undefined') (function boot() {
     ctx.fillStyle = ahead ? '#e0357a' : '#1d1b2f'; ctx.fillText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
     ctx.font = 'bold 12px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.7);
     const upLv = Object.values(g.up || {}).reduce((a, b) => a + b, 0);
-    const badge = mode === 'replay' ? '' : run && run.kind === 'daily' ? 'DAILY #' + run.day + ' · NO UPGRADES' : (run && run.kind === 'challenge' ? 'GHOST RACE' : '') + (upLv ? (run && run.kind === 'challenge' ? ' · ' : '') + '⚡' + upLv : '');
+    const badge = mode === 'replay' ? '' : g.weekly ? g.weekly.name.toUpperCase() + ' · WEEKLY' : run && run.kind === 'daily' ? 'DAILY #' + run.day + ' · NO UPGRADES' : (run && run.kind === 'challenge' ? 'GHOST RACE' : '') + (upLv ? (run && run.kind === 'challenge' ? ' · ' : '') + '⚡' + upLv : '');
     if (badge) ctx.fillText(badge, W - pr, pt + 68);
     if (mode === 'replay') {
       const t = '▶ REPLAY' + (watching && watching.name !== 'YOU' ? ' · ' + watching.name : '');
@@ -2851,9 +2964,9 @@ if (typeof document !== 'undefined') (function boot() {
       ctx.textAlign = 'center';
       ctx.fillStyle = h.key ? '#fff' : col2; ctx.font = '900 20px Trebuchet MS, sans-serif';
       ctx.fillText(isTouch ? (left ? '◀ HOLD' : 'HOLD ▶') : (left ? 'S ← LEFT' : 'RIGHT → K'), x + kw / 2, y + (isTouch ? 32 : 26) + (h.key ? 3 : 0));
-      const st = h.grip ? (h.key ? 'PULLING' : 'HANGING') : (h.key || h.reachT > 0 ? 'REACHING' : 'FREE');
+      const st = g.weekly && g.weekly.id === 'one-hand' && !left ? 'LEFT HAND ONLY' : h.grip ? (h.key ? 'PULLING' : 'HANGING') : (h.key || h.reachT > 0 ? 'REACHING' : 'FREE');
       ctx.font = 'bold 11px Trebuchet MS, sans-serif'; ctx.fillStyle = h.key ? '#fff' : 'rgba(29,27,47,0.7)';
-      ctx.fillText((isTouch ? (left ? 'LEFT ARM · ' : 'RIGHT ARM · ') : '') + st, x + kw / 2, y + (isTouch ? 52 : 42) + (h.key ? 3 : 0));
+      ctx.fillText((isTouch ? (left ? 'LEFT ARM · ' : g.weekly && g.weekly.id === 'one-hand' ? '' : 'RIGHT ARM · ') : '') + st, x + kw / 2, y + (isTouch ? 52 : 42) + (h.key ? 3 : 0));
     }
     // coaching: step-by-step prompts until you have climbed a few bars, then stamina hints
     if (mode === 'play' && g.state === 'play' && !paused) {
@@ -2876,6 +2989,7 @@ if (typeof document !== 'undefined') (function boot() {
   function coach() {
     const H = g.hands, nG = (H[0].grip ? 1 : 0) + (H[1].grip ? 1 : 0);
     const ready = Math.max(throwReady(g, H[0]), throwReady(g, H[1]));
+    if (g.weekly && g.weekly.id === 'one-hand') return { t: ready ? 'LET GO!' : 'One hand: hold either side to pull, release to hop', big: ready === 2 };
     const bothKey = isTouch ? 'BOTH sides of the screen' : 'S + K';
     if (tutDone) {
       if (ready === 2 && g.maxBar < 8) return { t: 'LET GO!', big: true, color: '#ffe14d' };

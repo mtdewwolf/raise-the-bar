@@ -62,7 +62,7 @@ function createApp(opts = {}) {
   }
   // Leaderboards are kept per replay version: a physics change starts fresh boards, because
   // runs recorded with the old physics can't be replayed (or fairly compared) any more.
-  const BK = (board) => board + '@v' + RTB.REPLAY_VERSION;
+  const BK = (board) => board + '@v' + (board === 'weekly' ? RTB.WEEKLY_REPLAY_VERSION : RTB.REPLAY_VERSION);
   function boardStatus(boardName, day, playerId) {
     const board = BK(boardName);
     const b = q.myBest.get(board, day, playerId);
@@ -98,6 +98,7 @@ function createApp(opts = {}) {
 
   const routes = {
     'GET /api/health': () => ({ ok: true, day: today(), time: now() }),
+    'GET /api/events/weekly': () => ({ ...RTB.weeklyEvent(RTB.weekDay(now())), time: now() }),
 
     // Create an anonymous profile. The token doubles as the "sync code" for other devices.
     'POST /api/player': async (req, ip) => {
@@ -143,7 +144,8 @@ function createApp(opts = {}) {
       const body = await readJson(req);
       const code = String(body.replay || '');
       if (!/^[A-Za-z0-9_-]{8,60000}$/.test(code)) throw new HttpError(400, 'Missing or malformed replay');
-      try { RTB.decodeReplay(code); } catch (e) { throw new HttpError(422, 'Replay could not be verified: ' + e.message); } // e.g. recorded with older physics
+      let replay;
+      try { replay = RTB.decodeReplay(code); } catch (e) { throw new HttpError(422, 'Replay could not be verified: ' + e.message); }
       const hash = crypto.createHash('sha256').update(code).digest('hex');
       const dup = q.runByHash.get(hash);
       if (dup && dup.player_id !== p.id) throw new HttpError(409, 'That run was already submitted by someone else');
@@ -151,16 +153,28 @@ function createApp(opts = {}) {
       let runId, v;
       if (dup) { runId = dup.id; v = q.runById.get(runId); v = { height: v.height, kind: v.kind, day: v.day }; }
       else {
+        // Weekly rules come from the replay's immutable Monday period, never a client modifier.
+        // Validate before spending verifier CPU. Expired retries of an already accepted run remain idempotent.
+        if (replay.kind === 'weekly') {
+          if (replay.day !== RTB.weekDay(now())) throw new HttpError(422, 'This weekly event has ended or has not started. Start this week\'s ladder');
+          if (replay.seed !== RTB.weeklySeed(replay.day) || !RTB.noUpgrades(replay.up)) throw new HttpError(422, 'Weekly events require the official seed and no upgrades');
+        }
         try { v = await pool.verify(code); } catch (e) { throw new HttpError(422, 'Replay could not be verified: ' + e.message); }
         if (!v.finished) throw new HttpError(422, 'Replay does not end in a fall');
         // the upgrades used must have been paid for by this player's earlier verified runs
         if (RTB.upgradesCost(v.up) > earnedBy(p.id)) throw new HttpError(422, "That run used upgrades this profile hasn't earned yet");
         // daily runs only count on the daily board for today/yesterday (timezones) and the real daily seed
         const dailyOk = v.kind === 'daily' && v.seed === RTB.dailySeed(v.day) && v.day >= today() - 1 && v.day <= today() && RTB.noUpgrades(v.up);
-        v.kind = dailyOk ? 'daily' : 'endless'; if (!dailyOk) v.day = 0;
+        const weeklyOk = v.kind === 'weekly';
+        if (weeklyOk) {
+          if (v.day !== RTB.weekDay(now()) || v.seed !== RTB.weeklySeed(v.day) || !RTB.noUpgrades(v.up)) throw new HttpError(422, 'Weekly event rules or period do not match');
+        } else {
+          v.kind = dailyOk ? 'daily' : 'endless'; if (!dailyOk) v.day = 0;
+        }
         const t = now();
         runId = Number(q.insertRun.run(p.id, v.kind, v.day, v.seed, v.height, v.score, v.bars, v.hops, code, hash, t, v.coins, JSON.stringify(v.up)).lastInsertRowid);
-        const boards = [['alltime', 0]]; if (v.kind === 'daily') boards.push(['daily', v.day]);
+        const boards = v.kind === 'weekly' ? [['weekly', v.day]] : [['alltime', 0]];
+        if (v.kind === 'daily') boards.push(['daily', v.day]);
         for (const [board, day] of boards) {
           const prev = q.best.get(BK(board), day, p.id);
           v['improved_' + board] = !prev || v.height > prev.height;
@@ -169,14 +183,21 @@ function createApp(opts = {}) {
       }
       return {
         runId, height: v.height, score: v.score, bars: v.bars, hops: v.hops, coins: v.coins, earned: earnedBy(p.id),
-        alltime: { ...boardStatus('alltime', 0, p.id), improved: !!v.improved_alltime },
+        alltime: v.kind === 'weekly' ? null : { ...boardStatus('alltime', 0, p.id), improved: !!v.improved_alltime },
+        weekly: v.kind === 'weekly' ? { ...RTB.weeklyEvent(v.day), ...boardStatus('weekly', v.day, p.id), improved: !!v.improved_weekly } : null,
         daily: v.kind === 'daily' ? { day: v.day, ...boardStatus('daily', v.day, p.id), improved: !!v.improved_daily } : null,
       };
     },
 
     'GET /api/leaderboard': (req, ip, url) => {
-      const board = url.searchParams.get('board') === 'daily' ? 'daily' : 'alltime';
-      const day = board === 'daily' ? Number(url.searchParams.get('day')) || today() : 0;
+      const requested = url.searchParams.get('board');
+      const board = requested === 'weekly' ? 'weekly' : requested === 'daily' ? 'daily' : 'alltime';
+      const day = board === 'weekly' ? (url.searchParams.has('day') ? Number(url.searchParams.get('day')) : RTB.weekDay(now()))
+        : board === 'daily' ? Number(url.searchParams.get('day')) || today() : 0;
+      let event = null;
+      if (board === 'weekly') {
+        try { event = RTB.weeklyEvent(day); } catch (e) { throw new HttpError(400, 'Invalid weekly period'); }
+      }
       const lim = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 50));
       const me = auth(req, false);
       const entries = q.top.all(BK(board), day, lim).map((r, i) => {
@@ -188,7 +209,7 @@ function createApp(opts = {}) {
         const s = boardStatus(board, day, me.id);
         if (s) mine = { rank: s.rank, name: me.name, height: s.best, runId: s.runId, you: true };
       }
-      return { board, day, total: q.count.get(BK(board), day).n, entries, me: mine };
+      return { board, day, ...(event ? { event } : {}), total: q.count.get(BK(board), day).n, entries, me: mine };
     },
   };
 

@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS runs (
   replay_hash TEXT NOT NULL UNIQUE,
   created_at  INTEGER NOT NULL
 );
--- one row per player per board: their best run. board = 'alltime' (day 0) or 'daily' (day N)
+-- one row per player per board: their best run. board = 'alltime' (day 0) or 'daily' (day N) or 'weekly' (Monday day N), each versioned
 CREATE TABLE IF NOT EXISTS bests (
   board      TEXT NOT NULL,
   day        INTEGER NOT NULL,
