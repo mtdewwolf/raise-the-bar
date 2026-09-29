@@ -30,8 +30,10 @@ android {
 
         // Where shared challenge links point. Replay links only work for friends once the
         // web version is hosted here (e.g. GitHub Pages). The app also opens these links.
-        def shareHost = 'mtdewwolf.github.io'
-        def sharePath = '/raise-the-bar/'
+        def shareUri = new URI(rtbApi ?: 'https://mtdewwolf.github.io/raise-the-bar/')
+        def shareHost = shareUri.host
+        def sharePath = shareUri.path ?: '/'
+        if (!shareHost || shareUri.scheme != 'https') throw new GradleException('RTB_API must use HTTPS for shared app links')
         buildConfigField 'String', 'SHARE_BASE_URL', "\"https://${shareHost}${sharePath}\""
         manifestPlaceholders = [shareHost: shareHost, sharePath: sharePath]
     }

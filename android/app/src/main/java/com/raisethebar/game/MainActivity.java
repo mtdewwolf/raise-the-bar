@@ -41,7 +41,7 @@ import java.util.regex.Pattern;
 public class MainActivity extends Activity {
 
     private static final String GAME_URL = "https://" + WebViewAssetLoader.DEFAULT_DOMAIN + "/assets/index.html";
-    private static final Pattern REPLAY_CODE = Pattern.compile("(?:^|&)r=([A-Za-z0-9_-]+)");
+    private static final Pattern REPLAY_CODE = Pattern.compile("(?:^|&)(r=[A-Za-z0-9_-]+|c=[A-Fa-f0-9]{12})(?:&|$)");
 
     private WebView webView;
     private WebViewAssetLoader assetLoader;
@@ -137,18 +137,22 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         String code = replayCode(intent);
-        // A changed query string forces a real reload so the game reads the new #r= challenge.
-        if (code != null) webView.loadUrl(GAME_URL + "?t=" + System.currentTimeMillis() + "#r=" + code);
+        // A changed query string forces a real reload so the game reads the new challenge invite.
+        if (code != null) webView.loadUrl(GAME_URL + "?t=" + System.currentTimeMillis() + "#" + code);
     }
 
     /** The game URL, carrying the challenge from a shared link the app was opened with. */
-    private static String gameUrlFor(Intent intent) {
+    static String gameUrlFor(Intent intent) {
         String code = replayCode(intent);
-        return code == null ? GAME_URL : GAME_URL + "#r=" + code;
+        return code == null ? GAME_URL : GAME_URL + "#" + code;
     }
 
     private static String replayCode(Intent intent) {
         if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null) return null;
+        String path = intent.getData().getPath();
+        if (path != null && path.matches("/challenge/[A-Fa-f0-9]{12}")) {
+            return "c=" + path.substring("/challenge/".length());
+        }
         String fragment = intent.getData().getFragment();
         if (fragment == null) return null;
         Matcher m = REPLAY_CODE.matcher(fragment);

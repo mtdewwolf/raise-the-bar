@@ -8,6 +8,8 @@ const crypto = require('node:crypto');
 const { openDb } = require('./db');
 const { VerifierPool } = require('./verifier');
 const { loadSim } = require('./sim');
+const { challengeRoutes } = require('./challenges');
+const { inviteUrl, qrSvg, invitePage } = require('./invites');
 
 const TOKEN_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I, easy to type from another device
 const ADJ = ['Noodle', 'Wobbly', 'Mighty', 'Sweaty', 'Brave', 'Chalky', 'Floppy', 'Plucky', 'Gritty', 'Soggy', 'Jolly', 'Tiny'];
@@ -96,8 +98,11 @@ function createApp(opts = {}) {
     try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch (e) { throw new HttpError(400, 'Invalid JSON'); }
   }
 
+  const publicUrl = opts.publicUrl || process.env.RTB_PUBLIC_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : null);
+  const friends = challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpError });
   const routes = {
-    'GET /api/health': () => ({ ok: true, day: today(), time: now() }),
+    ...friends.routes,
+    'GET /api/health': () => ({ ok: true, day: today(), time: now(), challenges: true }),
     'GET /api/events/weekly': () => ({ ...RTB.weeklyEvent(RTB.weekDay(now())), time: now() }),
 
     // Create an anonymous profile. The token doubles as the "sync code" for other devices.
@@ -232,7 +237,15 @@ function createApp(opts = {}) {
     const send = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
     try {
       limit('ip:' + ip, 120, 60000);
-      let fn = routes[req.method + ' ' + url.pathname], arg = null;
+      const invite = /^\/challenge\/([A-Fa-f0-9]{12})(\/qr.svg)?$/.exec(url.pathname);
+      if (serveGame && req.method === 'GET' && invite) {
+        const challenge = friends.invite(invite[1]);
+        const link = inviteUrl(req, challenge.code, { publicUrl, trustProxy });
+        res.writeHead(200, { 'Content-Type': invite[2] ? 'image/svg+xml' : 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+        return res.end(invite[2] ? qrSvg(link) : invitePage(fs.readFileSync(gameFile, 'utf8'), challenge, link));
+      }
+
+      let fn = routes[req.method + ' ' + url.pathname] || friends.resolve(req.method, url.pathname), arg = null;
       const m = /^\/api\/runs\/(\d+)$/.exec(url.pathname);
       if (!fn && m && req.method === 'GET') {
         fn = () => { const r = q.runById.get(Number(m[1])); if (!r) throw new HttpError(404, 'Run not found'); return { runId: r.id, name: r.name, height: r.height, replay: r.replay, look: lookOf(r) }; };

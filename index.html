@@ -32,7 +32,7 @@
     background: rgba(29, 27, 47, 0.35); padding: 16px; transition: opacity .2s;
     overflow-y: auto; touch-action: pan-y;
   }
-  .overlay.hidden { opacity: 0; pointer-events: none; }
+  .overlay.hidden { opacity: 0; pointer-events: none; visibility: hidden; }
   body.tabletop .overlay { bottom: var(--hinge-inset, 0px); }
   body.tabletop .card { zoom: 0.72; }
   body.tabletop .tips, body.tabletop .hint, body.tabletop .touchpads { display: none; }
@@ -164,6 +164,32 @@
     .stat .val { font-size: 28px; }
     .quip { font-size: 18px; margin: 10px 0 14px; }
   }
+
+  #friends { z-index: 20; }
+  #friends .card { max-width: 640px; }
+  #friends [hidden] { display: none !important; }
+  #friends h3 { margin: 14px 0 6px; font-size: 27px; }
+  #friends input, #friends select { width: 100%; padding: 12px; border: 2px solid var(--ink); border-radius: 8px; font: inherit; background: white; min-width: 0; }
+  #friends label { display: block; font-size: 14px; font-weight: bold; margin-top: 14px; }
+  #friends button { letter-spacing: 0; min-height: 40px; }
+  #friends button:focus-visible, #friends input:focus-visible, #friends select:focus-visible { outline: 3px solid #2f7bff; outline-offset: 3px; }
+  #friendStatus { font-size: 15px; min-height: 24px; margin: 12px 0; }
+  .friend-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+  .friend-rules, .friend-note { font-size: 14px; line-height: 1.5; }
+  .friend-board { max-height: none; }
+  .friend-board li { flex-wrap: wrap; }
+  .friend-board .nm { white-space: normal; min-width: 90px; }
+  .friend-item { border-top: 2px solid var(--ink); padding: 15px 0; }
+  .friend-item p { font-size: 14px; margin: 8px 0; }
+  .friend-winner { font-size: 20px; font-weight: bold; background: #ffd23f; padding: 12px; border-radius: 8px; }
+  .friend-invite { margin: 18px 0; padding: 16px; border: 3px solid var(--ink); border-radius: 12px; background: #fff; }
+  .friend-invite summary { font-weight: bold; cursor: pointer; }
+  .friend-qr { display: block; width: 220px; max-width: 100%; height: auto; margin: 14px auto; }
+  .friend-invite a { color: #194da8; font-weight: bold; padding: 10px 0; display: inline-block; }
+  .friend-invite p { font-size: 14px; line-height: 1.5; }
+  #friends[aria-busy="true"] button:not(.close) { opacity: .6; pointer-events: none; }
+  @media (max-width: 480px) { #friends .card { padding: 22px 16px; } }
+
 </style>
 </head>
 <body>
@@ -207,6 +233,7 @@
       <div id="weeklyReset" class="reset"></div>
     </section>
     <div class="menurow">
+      <button id="friendsBtn" class="secondary small">🤝 Challenge friends</button>
       <button id="lbBtn" class="secondary small">🏆 Leaderboards</button>
       <button id="achBtn" class="secondary small">🏅 Achievements <span id="achCount"></span></button>
       <button id="lockerBtn" class="secondary small">👕 Locker</button>
@@ -216,6 +243,28 @@
     <button id="bloodBtn" class="secondary toggle"></button>
     <div class="hint kb-only">Enter / Space to start &middot; D for the daily &middot; W for the weekly &middot; M to mute &middot; B for blood &middot; Esc to pause &middot; touch works too</div>
     <div class="hint touch-only">Tip: play in landscape or portrait &middot; ❚❚ button to pause</div>
+  </div>
+</div>
+
+
+<div id="friends" class="overlay panel hidden" role="dialog" aria-modal="true" aria-labelledby="friendsTitle">
+  <div class="card wide">
+    <button class="close" data-close aria-label="Close friend challenges">✕</button>
+    <h2 id="friendsTitle">Challenge friends</h2>
+    <p id="friendStatus" role="status" aria-live="polite"></p>
+    <div id="friendTools">
+      <label for="friendName">Your name</label>
+      <input id="friendName" maxlength="16" autocomplete="nickname">
+      <div class="friend-actions"><button id="friendNameSave" class="secondary small">Save name</button></div>
+      <label for="friendMode">New 24-hour challenge</label>
+      <select id="friendMode"><option value="endless">Friends Ladder</option><option value="daily">Today's Daily Ladder</option><option value="weekly">This week's event</option></select>
+      <div class="friend-actions"><button id="friendCreate" class="small">Create challenge</button></div>
+      <p class="friend-note">Joining a friend? Tap their invite link or scan their QR code to open the challenge here.</p>
+      <h3>My challenges</h3>
+    </div>
+    <div id="friendDetail"></div>
+    <div id="friendList"></div>
+    <button id="friendRetryUploads" class="secondary small">Retry saved results</button>
   </div>
 </div>
 
@@ -1132,7 +1181,10 @@ if (typeof document !== 'undefined') (function boot() {
   }
   window.addEventListener('keydown', (e) => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) { if (e.key === 'Escape') closePanel(); return; }
-    if (panel) { if (e.key === 'Escape') closePanel(); return; }
+    if (panel) {
+      if (e.key === 'Escape') closePanel();
+      return;
+    }
     if (setKey(e, true)) { initAudio(); return; }
     if (e.repeat) return;
     const k = e.key;
@@ -1271,7 +1323,7 @@ if (typeof document !== 'undefined') (function boot() {
     run = cfg;
     const rk = cfg.ghost ? cfg.ghost.kind : cfg.kind;
     const rd = cfg.ghost ? cfg.ghost.day : cfg.day || 0;
-    const up = rk === 'daily' || rk === 'weekly' ? {} : wallet.levels;
+    const up = cfg.friendCode || rk === 'daily' || rk === 'weekly' ? {} : wallet.levels;
     g = newGame(cfg.seed, 'play', up, { kind: rk, day: rd });
     if (rk === 'weekly') weekly = loadWeekly(rd);
     gh = makeGhost(cfg.ghost, cfg.ghostName, cfg.ghostLook);
@@ -1297,7 +1349,8 @@ if (typeof document !== 'undefined') (function boot() {
   }
   function raceReplay(r, name, lk) { startRun({ kind: 'challenge', seed: r.seed, day: r.day, ghost: r, ghostName: name, ghostLook: lk }); }
   function retry() {
-    if (!run || run.kind === 'endless') startEndless();
+    if (run && run.friendCode) { const code = run.friendCode; showFriendPanel(); friendAction(async () => { const c = await api('GET', '/api/challenges/' + code, null, true); if (c.status !== 'active') { renderFriend(c); return; } playFriend(c); }); }
+    else if (!run || run.kind === 'endless') startEndless();
     else if (run.kind === 'daily') startDaily();
     else if (run.kind === 'weekly') startWeekly();
     else startRun(run);
@@ -1340,6 +1393,7 @@ if (typeof document !== 'undefined') (function boot() {
   // ---------- Android app (android/): native bridge for sharing and the back button ----------
   const androidApp = window.RTBAndroid || null;
   window.rtbBack = () => { // returns true if the game handled the back press
+    if (panel) { closePanel(); return true; }
     if (mode === 'play' && !paused) { paused = true; releasePointers(); return true; }
     if (mode === 'play' || mode === 'over') { toMenu(); return true; }
     if (mode === 'replay') { skipReplay(); return true; }
@@ -1382,6 +1436,7 @@ if (typeof document !== 'undefined') (function boot() {
       if (!health || health.ok !== true) throw new Error('Unexpected leaderboard response');
       if (Number.isFinite(health.time)) serverTimeOffset = health.time - Date.now();
       online = 'online';
+      friendSupported = health.challenges === true;
     }
     catch (e) { online = apiExplicit ? 'offline' : 'off'; } // a guessed same-origin server that isn't there is just "no server"
     refreshMenu();
@@ -1391,6 +1446,7 @@ if (typeof document !== 'undefined') (function boot() {
       catch (e) { if (e.status === 401) { profile = null; store.set('rtb_profile', null); } }
     }
     flushRuns();
+    flushFriendRuns();
   }
   function adoptProfile(token, me, linking) {
     profile = { token, name: me.name }; store.set('rtb_profile', profile);
@@ -1413,12 +1469,15 @@ if (typeof document !== 'undefined') (function boot() {
     }
     refreshMenu();
   }
+  let creatingProfile = null;
   async function ensureProfile() {
     if (profile) return profile;
-    const me = await api('POST', '/api/player', {});
-    adoptProfile(me.token, me);
-    flash('Playing as ' + me.name + ' (rename it in 🏆 Leaderboards)');
-    return profile;
+    if (!creatingProfile) creatingProfile = (async () => {
+      const me = await api('POST', '/api/player', {});
+      adoptProfile(me.token, me);
+      return profile;
+    })();
+    try { return await creatingProfile; } finally { creatingProfile = null; }
   }
   // finished runs: queued so nothing is lost offline, uploaded oldest first
   // runs recorded with older physics can't be verified any more, so they're dropped from the queue
@@ -1581,7 +1640,7 @@ if (typeof document !== 'undefined') (function boot() {
     if (g.deathCause === 'floor' && g.maxHeight < 0.5) stats.mat++;
     if (stats.mat >= 5) unlock('mat');
     if (stats.falls >= 50) unlock('flyer');
-    if (rec.kind === 'daily' && rec.day === today) {
+    if (!run.friendCode && rec.kind === 'daily' && rec.day === today) {
       unlock('daily');
       if (stats.lastDaily !== today) { stats.streak = stats.lastDaily === today - 1 ? stats.streak + 1 : 1; stats.lastDaily = today; }
       if (stats.streak >= 3) unlock('streak3');
@@ -1593,10 +1652,11 @@ if (typeof document !== 'undefined') (function boot() {
   // ---------- panels ----------
   let panel = null, lbBoard = 'daily';
   function openPanel(id) {
+    if (panel && panel !== id) $(panel).classList.add('hidden');
     panel = id; $(id).classList.remove('hidden');
-    if (id === 'lb') loadBoard(); else if (id === 'locker') renderLocker(); else if (id === 'shop') renderShop(); else renderAchievements();
+    if (id === 'friends') { loadFriends(); $('friends').querySelector('.close').focus(); } else if (id === 'lb') loadBoard(); else if (id === 'locker') renderLocker(); else if (id === 'shop') renderShop(); else renderAchievements();
   }
-  function closePanel() { if (panel) $(panel).classList.add('hidden'); panel = null; refreshMenu(); }
+  function closePanel() { if (panel === 'friends') ++friendRequest; if (panel) $(panel).classList.add('hidden'); panel = null; refreshMenu(); }
   for (const el of document.querySelectorAll('[data-close]')) el.onclick = closePanel;
   for (const el of document.querySelectorAll('.panel')) el.addEventListener('pointerdown', (e) => { if (e.target === el) closePanel(); });
   $('lbBtn').onclick = () => openPanel('lb');
@@ -1784,8 +1844,183 @@ if (typeof document !== 'undefined') (function boot() {
     }
   }
 
+  // ---------- tracked friend challenges ----------
+  let friendSupported = false, friendDetail = null, friendRequest = 0;
+  let friendBusy = false, friendSyncing = null;
+  let friendPending = store.get('rtb_friend_pending', []);
+  if (!Array.isArray(friendPending)) friendPending = [];
+  const incomingFriend = /^\/challenge\/([A-Fa-f0-9]{12})$/.exec(location.pathname) || /(?:^#|&)c=([A-Fa-f0-9]{12})(?:&|$)/.exec(location.hash);
+  function friendMessage(text) { $('friendStatus').textContent = text; }
+  function friendTime(c) {
+    if (c.status === 'finished') return 'Finished';
+    if (c.status === 'outdated') return 'Update required — start a rematch';
+    const mins = Math.max(0, Math.ceil((c.expiresAt - eventNow()) / 60000));
+    return mins ? Math.floor(mins / 60) + 'h ' + mins % 60 + 'm left' : 'Finishing…';
+  }
+  function friendUrl(code) {
+    return new URL('/challenge/' + code, apiBase || (androidApp ? androidApp.shareBaseUrl() : location.origin)).href;
+  }
+  function friendEl(tag, text, cls) { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (cls) el.className = cls; return el; }
+  async function friendAction(fn) {
+    if (friendBusy) return;
+    friendBusy = true; $('friends').setAttribute('aria-busy', 'true'); friendMessage('Working…');
+    try {
+      if (!friendSupported) { await initOnline(); if (!friendSupported) throw new Error('Connect to the updated challenge server to play with friends.'); }
+      await ensureProfile();
+      await fn();
+    } catch (e) { friendMessage(e.name === 'AbortError' ? 'Connection timed out. Please try again.' : e.message); }
+    finally { friendBusy = false; $('friends').removeAttribute('aria-busy'); }
+  }
+  function friendButton(text, fn) { return btn(text, () => friendAction(fn), 'secondary small'); }
+  function showFriendPanel() { openPanel('friends'); }
+  async function loadFriends() {
+    const request = ++friendRequest; friendDetail = null;
+    $('friendDetail').replaceChildren(); $('friendList').replaceChildren();
+    $('friendTools').hidden = false;
+    for (const el of $('friendTools').querySelectorAll('input, select, button')) el.disabled = true;
+    friendMessage('Loading challenges…');
+    try {
+      if (!friendSupported) { await initOnline(); if (!friendSupported) throw new Error('Friend challenges need an internet connection and the updated server.'); }
+      await ensureProfile();
+      const d = await api('GET', '/api/challenges', null, true);
+      if (request !== friendRequest || panel !== 'friends') return;
+      $('friendName').value = profile.name;
+      friendMessage('Same ladder. No upgrades. Best height wins.');
+      if (!d.challenges.length) $('friendList').append(friendEl('p', 'No challenges yet. Start one or tap a friend’s invite link.'));
+      for (const c of d.challenges) {
+        const item = friendEl('div', undefined, 'friend-item');
+        const leader = c.entries.find(e => e.height !== null);
+        item.append(friendEl('strong', c.title), friendEl('p', friendTime(c) + ' · ' + c.entries.length + ' players' + (leader ? ' · ' + leader.name + ' ' + leader.height.toFixed(2) + 'm' : ' · Set the first score')),
+          friendButton('Open challenge', () => openFriend(c.code)));
+        $('friendList').append(item);
+      }
+    } catch (e) { if (request === friendRequest) friendMessage(e.message); }
+    finally { for (const el of $('friendTools').querySelectorAll('input, select, button')) el.disabled = false; }
+  }
+  async function openFriend(code) {
+    const request = ++friendRequest;
+    const d = await api('GET', '/api/challenges/' + code, null, true);
+    if (request !== friendRequest) return;
+    if (Number.isFinite(d.time)) serverTimeOffset = d.time - Date.now();
+    friendDetail = d; renderFriend(d);
+  }
+  function renderFriend(c) {
+    $('friendTools').hidden = true; $('friendList').replaceChildren();
+    const box = $('friendDetail'); box.replaceChildren();
+    const creator = c.entries.find(e => e.creator);
+    const leader = c.entries.find(e => e.height !== null);
+    friendMessage('Challenge from ' + (creator ? creator.name : 'a friend'));
+    box.append(friendEl('h3', c.title), friendEl('p', friendTime(c) + ' · No upgrades · Unlimited retries', 'friend-rules'));
+    const url = friendUrl(c.code);
+    const invite = friendEl('details', undefined, 'friend-invite');
+    invite.append(friendEl('summary', 'Invite a friend'));
+    invite.append(friendEl('p', 'Scan with a phone camera to join. No code to type.'));
+    const qr = friendEl('img'); qr.className = 'friend-qr'; qr.alt = 'Scan to open this challenge'; qr.width = 220; qr.height = 220;
+    qr.src = url + '/qr.svg'; qr.onerror = () => { qr.hidden = true; invite.append(friendEl('p', 'QR unavailable. Use one of the invite options below.')); };
+    invite.append(qr);
+    const shareText = (profile ? profile.name : 'A friend') + ' challenged you on Raising the Bar. ' + (leader ? 'Beat ' + leader.height.toFixed(2) + 'm! ' : '') + 'Tap to join.';
+    const message = shareText + ' ' + url;
+    const destinations = friendEl('div', undefined, 'friend-actions');
+    for (const [label, href] of [
+      ['WhatsApp', 'https://wa.me/?text=' + encodeURIComponent(message)],
+      ['Text message', 'sms:?body=' + encodeURIComponent(message)],
+      ['Email invite', 'mailto:?subject=' + encodeURIComponent('Challenge me on Raising the Bar') + '&body=' + encodeURIComponent(message)],
+    ]) { const a = friendEl('a', label); a.href = href; if (href.startsWith('https:')) { a.target = '_blank'; a.rel = 'noopener noreferrer'; } destinations.append(a); }
+    invite.append(destinations);
+    const openLink = friendEl('a', 'Open invite link'); openLink.href = url; openLink.target = '_blank'; openLink.rel = 'noopener noreferrer'; invite.append(openLink);
+    const actions = friendEl('div', undefined, 'friend-actions');
+    // Call native sharing directly in the click gesture: awaiting profile/network first can
+    // consume transient activation on mobile and prevent the share sheet from opening.
+    actions.append(btn('Share invite', async () => {
+      if (androidApp) { androidApp.share(shareText, url); return; }
+      if (navigator.share) {
+        try { await navigator.share({ title: 'Challenge your friends', text: shareText, url }); return; }
+        catch (e) { if (e.name === 'AbortError') return; }
+      }
+      invite.open = true; invite.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      friendMessage('Choose a messaging app below, or have your friend scan the QR code.');
+    }, 'secondary small'));
+    actions.append(btn('Show QR code', () => { invite.open = true; invite.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, 'secondary small'));
+    if (c.status === 'active') actions.append(friendButton(c.joined ? (leader ? 'Race the leader' : 'Set your score') : 'Join & play', async () => {
+      const d = c.joined ? await api('GET', '/api/challenges/' + c.code, null, true) : await api('POST', '/api/challenges/' + c.code + '/join', {}, true);
+      if (d.status !== 'active') { renderFriend(d); throw new Error('This challenge has ended. Start a rematch.'); }
+      playFriend(d);
+    }));
+    if (c.joined) actions.append(friendButton('Rematch', async () => { const d = await api('POST', '/api/challenges/' + c.code + '/rematch', {}, true); friendDetail = d; renderFriend(d); }));
+    actions.append(friendButton('Refresh', () => openFriend(c.code)), friendButton('My challenges', loadFriends)); box.append(actions, invite);
+    if (c.status === 'finished') {
+      const winners = c.entries.filter(e => e.rank === 1).map(e => e.name);
+      box.append(friendEl('p', winners.length ? (winners.length > 1 ? 'Tie: ' : 'Winner: ') + winners.join(' & ') : 'No scores submitted. Try a rematch.', 'friend-winner'));
+    }
+    const list = friendEl('ol', undefined, 'lblist friend-board'); list.setAttribute('aria-label', 'Challenge leaderboard');
+    for (const e of c.entries) {
+      const row = friendEl('li', undefined, e.you ? 'you' : '');
+      row.append(friendEl('span', e.rank === null ? '–' : '#' + e.rank, 'rk'), friendEl('span', e.name + (e.you ? ' (you)' : ''), 'nm'), friendEl('span', e.height === null ? 'Not played' : e.height.toFixed(2) + 'm', 'ht'));
+      if (e.replay && c.status !== 'outdated') row.append(friendButton('▶', async () => { closePanel(); startReplay(decodeReplay(e.replay), e.name, e.look); }));
+      list.append(row);
+    }
+    box.append(list);
+    box.append(friendEl('p', 'Scores are verified from replays. Equal heights share a rank. Invite links can be forwarded.', 'friend-note'));
+    for (const next of c.rematches) box.append(friendButton('Open rematch', () => openFriend(next)));
+  }
+
+  function playFriend(c) {
+    const target = c.entries.find(e => e.replay);
+    closePanel();
+    startRun({ kind: c.kind, day: c.day, seed: c.seed, friendCode: c.code,
+      ghost: target ? decodeReplay(target.replay) : null, ghostName: target ? target.name : 'FRIEND', ghostLook: target ? target.look : null });
+  }
+  async function createFriendFromRun(r) {
+    showFriendPanel();
+    await friendAction(async () => {
+      if (!noUpgrades(r.up)) {
+        const c = await api('POST', '/api/challenges', { kind: 'endless' }, true);
+        ++friendRequest; friendDetail = c; renderFriend(c); friendMessage('Your last run used upgrades. Set a fresh score here with no upgrades.');
+      } else {
+        const c = await api('POST', '/api/challenges', { replay: encodeReplay(r) }, true);
+        ++friendRequest; friendDetail = c; renderFriend(c);
+      }
+    });
+  }
+  async function flushFriendRuns() {
+    if (friendSyncing) return friendSyncing;
+    friendSyncing = (async () => {
+      const results = {};
+      for (const item of [...friendPending]) {
+        if (!profile || item.owner !== profile.token) continue;
+        try { results[item.code] = await api('POST', '/api/challenges/' + item.code + '/attempts', { replay: item.replay }, true); }
+        catch (e) {
+          if (!e.status || e.status === 429 || e.status >= 500) { results[item.code] = { pending: true }; break; }
+          results[item.code] = { error: e.message };
+        }
+        friendPending = friendPending.filter(x => x !== item); store.set('rtb_friend_pending', friendPending);
+      }
+      return results;
+    })();
+    try { return await friendSyncing; } finally { friendSyncing = null; }
+  }
+  async function submitFriendRun(code, r) {
+    const replay = encodeReplay(r);
+    if (!friendPending.some(x => x.code === code && x.replay === replay && x.owner === profile.token)) friendPending.push({ code, replay, owner: profile.token });
+    store.set('rtb_friend_pending', friendPending);
+    const results = await flushFriendRuns(); return results[code];
+  }
+  $('friendsBtn').onclick = showFriendPanel;
+  $('friendCreate').onclick = () => friendAction(async () => { const c = await api('POST', '/api/challenges', { kind: $('friendMode').value }, true); ++friendRequest; friendDetail = c; renderFriend(c); });
+  $('friendNameSave').onclick = () => friendAction(async () => { const me = await api('PATCH', '/api/me', { name: $('friendName').value }, true); adoptProfile(profile.token, me); friendMessage('Playing as ' + me.name); });
+  $('friendRetryUploads').onclick = () => friendAction(async () => {
+    const r = await flushFriendRuns();
+    const failed = Object.values(r).find(x => x.error || x.pending);
+    friendMessage(failed ? failed.error || 'Still offline. Your result stays saved until it can upload before the deadline.' : 'Saved results uploaded. Refresh your challenge to see standings.');
+  });
+  window.addEventListener('online', () => { initOnline().then(flushFriendRuns); });
+  window.addEventListener('hashchange', () => {
+    const m = /^#c=([A-Fa-f0-9]{12})$/.exec(location.hash);
+    if (m) { showFriendPanel(); friendAction(() => openFriend(m[1].toUpperCase())); }
+  });
+
   // ---------- replay links ----------
-  function replayUrl(code) { return (androidApp ? androidApp.shareBaseUrl() : location.href.split('#')[0]) + '#r=' + code; }
+  function replayUrl(code) { return (androidApp ? androidApp.shareBaseUrl() : location.pathname.startsWith('/challenge/') ? location.origin + '/' : location.href.split('#')[0]) + '#r=' + code; }
   async function shareRun(r, height) {
     const code = encodeReplay(r), url = replayUrl(code);
     const where = r.kind === 'weekly' ? weeklyEvent(r.day).name + ' Week' : r.kind === 'daily' ? 'Daily Ladder #' + r.day : 'Raising the Bar';
@@ -1810,7 +2045,7 @@ if (typeof document !== 'undefined') (function boot() {
     } catch (e) { flash("That replay link didn't work"); }
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   }
-  readHashReplay(); refreshMenu(); initOnline();
+  readHashReplay(); refreshMenu(); initOnline().then(() => { if (incomingFriend) { showFriendPanel(); friendAction(() => openFriend(incomingFriend[1].toUpperCase())); } });
   let displayedWeek = currentWeek().day;
   setInterval(() => {
     if (mode === 'menu') refreshMenu();
@@ -1845,6 +2080,7 @@ if (typeof document !== 'undefined') (function boot() {
   }
   function modeLabel() {
     if (!run) return '';
+    if (run.friendCode) return 'FRIEND CHALLENGE';
     if (rec && rec.kind === 'weekly') return weeklyEvent(rec.day).name.toUpperCase() + ' WEEK';
     if (run.kind === 'daily') return 'DAILY LADDER #' + run.day;
     if (run.kind === 'challenge') return 'GHOST RACE vs ' + run.ghostName;
@@ -1856,14 +2092,14 @@ if (typeof document !== 'undefined') (function boot() {
     const h = g.maxHeight;
     rec.steps = g.n;
     lastRec = { seed: rec.seed, kind: rec.kind, day: rec.day, steps: rec.steps, changes: rec.changes, up: rec.up };
-    if (rec.kind !== 'weekly' && h > best + 0.05) { best = h; saveBest(); newBestThisRun = true; }
+    if (!run.friendCode && rec.kind !== 'weekly' && h > best + 0.05) { best = h; saveBest(); newBestThisRun = true; }
     let bestLbl = 'BEST', bestVal = best;
-    if (rec.kind === 'daily' && rec.day === today) {
+    if (!run.friendCode && rec.kind === 'daily' && rec.day === today) {
       daily = loadDaily();
       if (h > daily.best) { daily.best = h; daily.replay = encodeReplay(lastRec); saveDaily(); newBestThisRun = true; }
       bestLbl = "TODAY'S BEST"; bestVal = daily.best;
     }
-    if (rec.kind === 'weekly') {
+    if (!run.friendCode && rec.kind === 'weekly') {
       weekly = loadWeekly(rec.day);
       if (h > weekly.best) { weekly.best = h; weekly.replay = encodeReplay(lastRec); saveWeekly(weekly); newBestThisRun = true; }
       bestLbl = 'WEEKLY BEST'; bestVal = weekly.best;
@@ -1879,9 +2115,10 @@ if (typeof document !== 'undefined') (function boot() {
     let ghostBeaten = false;
     let q = pick(QUIPS);
     if (gh) {
-      const diff = h - gh.max;
-      if (diff > 0.05) { ghostBeaten = true; vs.className = 'vs win'; vs.textContent = 'You beat ' + gh.name + ' by ' + diff.toFixed(1) + 'm!'; q = pick(Q_GHOST_WIN); }
-      else vs.className = 'vs lose', vs.textContent = (-diff).toFixed(1) + 'm short of ' + gh.name + ' (' + gh.max.toFixed(1) + 'm)';
+      const diff = run.friendCode ? (Math.round(h * 100) - Math.round(gh.max * 100)) / 100 : h - gh.max;
+      if (run.friendCode && diff === 0) { vs.className = 'vs'; vs.textContent = 'You tied ' + gh.name + ' at ' + h.toFixed(2) + 'm!'; }
+      else if (diff > (run.friendCode ? 0 : 0.05)) { ghostBeaten = true; vs.className = 'vs win'; vs.textContent = 'You beat ' + gh.name + ' by ' + diff.toFixed(run.friendCode ? 2 : 1) + 'm!'; q = pick(Q_GHOST_WIN); }
+      else vs.className = 'vs lose', vs.textContent = (-diff).toFixed(run.friendCode ? 2 : 1) + 'm short of ' + gh.name + ' (' + gh.max.toFixed(1) + 'm)';
     }
     if (g.deathCause === 'floor' && h < 0.5) q = pick(Q_FLOOR);
     else if (g.deathCause === 'exhausted' && Math.random() < 0.5) q = pick(Q_EXH);
@@ -1890,12 +2127,12 @@ if (typeof document !== 'undefined') (function boot() {
     $('oCause').textContent = (causes[g.deathCause] || '') + ' · Bars climbed: ' + g.maxBar + (g.hops ? ' · Hops: ' + g.hops : '');
     const r = lastRec;
     achievementsAfterRun(ghostBeaten);
-    const gain = runCoins(g);
+    const gain = run.friendCode ? 0 : runCoins(g);
     wallet.earned += gain; saveWallet();
     $('oCoins').textContent = gain > 0 ? '+' + gain + ' 🪙 Chalk · ' + coinsLeft().toLocaleString() + ' to spend' : '';
     const rankEl = $('oRank'); rankEl.textContent = '';
     // every run that earns Chalk is uploaded, so the server's coin total matches the device's
-    if (apiBase && online !== 'off' && (h >= 0.5 || gain > 0)) {
+    if (!run.friendCode && apiBase && online !== 'off' && (h >= 0.5 || gain > 0)) {
       rankEl.textContent = isOnline() ? 'Submitting to the leaderboard…' : 'Leaderboards offline: this run will upload later';
       const mine = r;
       submitRun(encodeReplay(r)).then((res) => {
@@ -1910,10 +2147,23 @@ if (typeof document !== 'undefined') (function boot() {
         rankEl.textContent = '🏆 ' + parts.join(' · ') + (((res.alltime && res.alltime.improved) || (res.daily && res.daily.improved) || (res.weekly && res.weekly.improved)) ? ' · new personal best!' : '');
       });
     }
+    if (run.friendCode) {
+      const code = run.friendCode, mine = r;
+      rankEl.textContent = 'Verifying challenge result…';
+      submitFriendRun(code, r).then(res => {
+        if (lastRec !== mine || mode !== 'over') return;
+        if (!res || res.pending) { rankEl.textContent = 'Result saved. Reconnect and retry before the challenge deadline.'; return; }
+        if (res.error) { rankEl.textContent = 'Not ranked: ' + res.error; return; }
+        const me = res.entries.find(e => e.you);
+        rankEl.textContent = me ? '#' + me.rank + ' in this challenge · best ' + me.height.toFixed(2) + 'm' : 'Result verified';
+      }).catch(() => { if (lastRec === mine) rankEl.textContent = 'Result saved. Retry upload in Friend Challenges.'; });
+    }
+    const finishedFriendCode = run.friendCode;
     setButtons(btn('Try Again', retry), [
+      finishedFriendCode ? btn('🤝 Challenge results', () => { showFriendPanel(); friendAction(() => openFriend(finishedFriendCode)); }) : btn('🤝 Challenge your friends', () => createFriendFromRun(r)),
       btn('▶ Watch replay', () => startReplay(r, 'YOU')),
       btn('👻 Race this run', () => raceReplay(r, 'YOUR GHOST', look)),
-      btn('🔗 Share challenge', () => shareRun(r, h)),
+      btn('🔗 Share ghost replay', () => shareRun(r, h)),
       btn('🛒 Upgrades', () => openPanel('shop')),
       btn('🏆 Leaderboards', () => { if (r.kind === 'weekly') lbBoard = 'weekly'; openPanel('lb'); }),
       btn('Main menu', toMenu),
