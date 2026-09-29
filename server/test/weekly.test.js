@@ -8,7 +8,7 @@ const MONDAY = Date.UTC(2026, 8, 28);
 const WEEK = 7 * 86400000;
 
 // Use the real game and raw keyboard/touch bit masks, just like the client recorder.
-function playWeekly(day, { seed = RTB.weeklySeed(day), up = {}, bits = 3, hold = 30 } = {}) {
+function playWeekly(day, { seed = RTB.weeklySeed(day), up = {}, bits = 3, hold = 60 } = {}) {
   const rules = { kind: 'weekly', day };
   const g = RTB.newGame(seed, 'play', up, rules);
   const changes = []; let previous = 0, maxHands = 0;
@@ -85,15 +85,15 @@ test('one-hand event accepts either key and never grips with the right hand', ()
   assert.equal(right.g.hands[1].grip, null);
 });
 
-test('weekly replays use a distinct version without changing daily/endless replay format', () => {
+test('weekly replays use a distinct version with the current daily/endless physics version', () => {
   const { code } = playWeekly(271);
   const bytes = Buffer.from(code, 'base64url');
   assert.equal(bytes[0], RTB.WEEKLY_REPLAY_VERSION);
-  bytes[0] = RTB.REPLAY_VERSION; // cannot relabel a weekly replay as v2
+  bytes[0] = RTB.REPLAY_VERSION; // cannot relabel a weekly replay as an endless run
   assert.throws(() => RTB.decodeReplay(bytes.toString('base64url')), /kind/);
   for (const kind of ['daily', 'endless']) {
     const old = RTB.encodeReplay({ kind, day: 271, seed: 5, steps: 500, changes: [[0, 3], [24, 0]] });
-    assert.equal(Buffer.from(old, 'base64url')[0], 2);
+    assert.equal(Buffer.from(old, 'base64url')[0], RTB.REPLAY_VERSION);
     assert.equal(RTB.decodeReplay(old).kind, kind);
   }
 });
