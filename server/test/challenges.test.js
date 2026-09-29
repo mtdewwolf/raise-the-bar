@@ -7,7 +7,7 @@ const RTB = loadSim();
 function play(c, hops = 2, up = {}) {
   const g = RTB.newGame(c.seed, 'play', up, c), changes = []; let last = 0;
   while (!(g.state === 'dying' && g.deathT > 1.5) && g.n < 14400) {
-    const bits = g.state === 'play' && (g.n < hops * 205 ? g.n % 205 < 24 : true) ? 3 : 0;
+    const bits = g.state === 'play' && (g.n < hops * 205 ? g.n % 205 < 60 : true) ? 3 : 0;
     if (bits !== last) { changes.push([g.n, bits]); last = bits; }
     g.hands[0].key = !!(bits & 1); g.hands[1].key = !!(bits & 2);
     RTB.stepSim(g, RTB.CFG.DT); g.events.length = 0;

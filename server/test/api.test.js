@@ -13,8 +13,8 @@ const now = () => clock;
 function playRun(seed, { kind = 'endless', day = 0, hops = 3, up = {} } = {}) {
   const g = RTB.newGame(seed, 'play', up); const changes = []; let last = 0, done = 0, t = 0;
   while (!(g.state === 'dying' && g.deathT > 1.5) && g.n < 120 * 120) {
-    // hop: pull ~0.2s, release, rest 1.5s; after `hops` hops hang on until the grip gives out
-    const phase = t % 205, pulling = done < hops ? phase < 24 : true;
+    // hop: pull ~0.5s, release, rest ~1.2s; after `hops` hops hang on until the grip gives out
+    const phase = t % 205, pulling = done < hops ? phase < 60 : true;
     if (done < hops && phase === 204) done++;
     const on = g.state === 'play';
     g.hands[0].key = g.hands[1].key = on && pulling;

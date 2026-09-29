@@ -33,7 +33,7 @@ Challenge links from the app point at `https://mtdewwolf.github.io/raise-the-bar
 | --- | --- |
 | **S** | Left arm: pull while gripping, reach up while free |
 | **K** | Right arm: pull while gripping, reach up while free |
-| **S + K** | Full pull-up: stronger pull, drains stamina fast |
+| **S + K** | Full pull-up: both arms contribute; effort drains stamina |
 | Enter / Space | Start / retry / skip replay |
 | Esc / P | Pause |
 | M | Mute |
@@ -41,9 +41,9 @@ Challenge links from the app point at `https://mtdewwolf.github.io/raise-the-bar
 
 **Touch (phones and tablets):** hold the **left half** of the screen for S and the **right half** for K. Both thumbs together give the full pull-up. Tap ❚❚ to pause, then tap anywhere to resume. Works in portrait and landscape, with haptic buzzes on slips and falls where the device supports it.
 
-**How to climb:** hold a key to pull with that arm. When you **release** a key while that arm is bent (you've pulled yourself up), the hand lets go and throws itself upward. A free hand grabs any bar it passes, as long as it isn't moving too fast for your current grip.
+**How to climb:** hold a key to pull with that arm. When you **release** a key while that arm is bent (you've pulled yourself up), the hand lets go and reaches upward while the body carries its existing momentum. A free hand grabs any bar it passes, as long as it isn't moving too fast for your current grip.
 
-- Hold S+K, then release both at the top to **hop** the whole body up to the next bar.
+- Hold S+K, then release both while still rising to **hop** the whole body up to the next bar.
 - Hold S+K and release only one key to climb hand over hand.
 - Pull on one side only to rotate and swing, which you need to reach offset bars.
 
@@ -53,6 +53,16 @@ Challenge links from the app point at `https://mtdewwolf.github.io/raise-the-bar
 - **Coaching.** Until you've climbed a few bars, prompts walk you through it: hold, keep pulling, *LET GO NOW!*
 - **Early bars are forgiving.** The first dozen bars allow sloppier, faster catches.
 - **Slow motion** kicks in for clutch catches: grabbing a bar while dropping fast, after a long one-handed flight, or on nearly empty stamina.
+
+## Movement physics
+
+Pulls build force over time. Muscle strength depends on fatigue, arm position, and shortening speed; two arms contribute their own forces without a combination bonus. Releases preserve momentum. Reaching and leg movements apply balanced forces and torques through the body, so moving limbs in midair cannot lift the centre of mass.
+
+Catch loads depend on body speed and available elbow travel. Grip load shifts between hands as the body moves sideways or one arm pulls harder. Stamina follows muscular effort and positive work. More heavily damped bars absorb load without unstable bouncing. The release cue estimates clearance to the next bar rather than triggering a launch boost.
+
+This is a simplified athlete model tuned for two-button play. It does not simulate individual muscles or tendons. Wind, low-gravity zones, weekly assisted one-arm play, automatic catches, and upgrades remain game mechanics.
+
+The physics uses replay versions **4** (endless/daily) and **5** (weekly). Public boards and local bests start fresh for this model; profiles, cosmetics, earned Chalk, and purchased upgrades remain. Old replays are rejected, and older friend challenges can be rematched with the new rules.
 
 ## Ghosts, replays and the Daily Ladder
 
@@ -79,7 +89,7 @@ The ladder changes as you climb, and a banner announces each new zone:
 | 40–80m | **The Clouds** | **Wobbly bars** hang from chains, and swing and bounce when you grab them. **Icy bars** hold less weight and drain stamina, so you can't rest on them |
 | 80m+ | **Space** | **Low gravity:** hops go much higher and floatier, and the bars are spread further apart |
 
-Like everything else, the zones come from the ladder's seed, so ghosts, replays and server-verified scores all stay exact. Gaps are capped at what a hop can actually reach. Higher up, the challenge comes from shorter, offset bars, stamina and each zone's hazards.
+Like everything else, the zones come from the ladder's seed, so ghosts, replays and server-verified scores all stay exact. Bar spacing is tuned for releases driven by pulling momentum. Higher up, the challenge comes from shorter, offset bars, stamina and each zone's hazards.
 
 ## Upgrades
 
@@ -88,7 +98,7 @@ Every run earns **🪙 Chalk**: 10 per metre climbed and 2 per bar reached. Spen
 | Upgrade | Effect per level |
 | --- | --- |
 | 💪 Explosive Pull | +8% pulling strength (keeps hops strong when you're tired) |
-| 🦘 Spring Hop | An upward kick on two-handed releases. The best-possible hop goes from ~0.84m to ~1.2m at max level (~1.4m combined with Explosive Pull) |
+| 🦘 Pull Speed | +8% muscle shortening speed; previously purchased Spring Hop levels carry over |
 | 🫁 Endurance | -8% stamina drain |
 | 🧤 Chalk Grip | +10% grip strength |
 | 🔋 Recovery | +15% stamina recovery while hanging |
@@ -112,7 +122,7 @@ Leaderboards need the small server in [`server/`](server/README.md): no dependen
 
 ## Systems
 
-- **Verlet ragdoll** with 15 point masses, rigid torso bracing, arm and leg segments, muscle forces and leg tone. Nothing is scripted or animated: every climb comes out of forces and constraints.
+- **Verlet ragdoll** with 15 point masses, rigid torso bracing, arm and leg segments, force-limited muscles and hip/knee motors with balanced reactions. Nothing is scripted or animated: every climb comes out of forces and constraints.
 - **Grip load** comes from the body's centre-of-mass acceleration. Hanging on one hand, swinging hard or catching at speed all load the grip. If the load exceeds your grip strength, you slip.
 - **Stamina.** Pulling drains it (two-arm pulls drain it about 2.5× as fast as one). Hanging recovers it for a while, then starts to tire you. Low stamina weakens pulls and grip, lowers the fastest catch you can make, removes core stabilisation (more sway) and adds tremor. At zero stamina your grip gives out.
 - **Procedural ladder.** Bars get further apart, shorter and more offset with height, while staying within reach.

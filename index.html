@@ -383,18 +383,18 @@ const CFG = {
   DAMP: 0.9988,           // per-step velocity retention (air drag)
   START_BAR_Y: 2.45,
   ARM_SEG: 0.3,
-  PULL_TARGET: 0.14,      // shoulder-hand distance a pull tries to reach
-  PULL_K: 5000,
-  PULL_MAX: 1.0,          // max force per arm, in body weights, when fresh
-  BOTH_BONUS: 1.3,        // each arm is stronger during a full two-arm pull
+  PULL_TARGET: 0.16,      // shoulder-hand distance a pull tries to reach
+  PULL_K: 6000,
+  PULL_MAX: 1.20,         // isometric force per arm, in body weights
+  PULL_SPEED: 3.6,        // unloaded shortening speed (m/s); force falls as speed rises
+  ACTIVATE_TIME: 0.08,    // muscle activation takes time instead of switching instantly
   THROW_DIST: 0.42,       // arm must be this contracted for a release to become a throw
   THROW_HOLD: 0.08,
-  THROW_BOOST: 2.2,       // upward hand kick on release (m/s)
   REACH_K: 1400,
   REACH_MAX: 130,
   REACH_TIME: 0.5,
   NO_GRIP_DEATH: 1.15,    // seconds of free fall before the attempt is over
-  BAR_K: 14000, BAR_M: 6, BAR_C: 70,
+  BAR_K: 14000, BAR_M: 20, BAR_C: 500,
 };
 
 // ---------------- Body ----------------
@@ -425,7 +425,7 @@ function mkHand(side) {
   return {
     side, idx: side ? RH : LH, sh: side ? RSH : LSH, el: side ? REL : LEL,
     grip: null, key: false, prevKey: false, holdT: 0, reachT: 0,
-    exclBar: null, exclT: 0, cool: 0, load: 0.5, graceT: 0.3, pullF: 0, throwT: -9,
+    exclBar: null, exclT: 0, cool: 0, load: 0.5, pullF: 0, pullPower: 0, activation: 0, catchLoad: 0, throwT: -9,
   };
 }
 
@@ -463,13 +463,12 @@ function addBar(g) {
   }
   const prev = g.bars[n - 1];
   const d = clamp((n - 4) / 55, 0, 1); // difficulty ramps over ~55 bars
-  // A perfectly timed both-hands hop reaches ~0.84m above the bar (sloppy ones ~0.65m), so ordinary
-  // gaps stay hoppable low down; from the Clouds up they widen, which is where upgrades pay off.
-  let gap = 0.55 + 0.07 * d + r() * (0.01 + 0.02 * d);
-  if (n > 8 && r() < 0.04 + 0.08 * d) gap += 0.07; // occasional stretch: needs a swing or hand-over-hand
-  if (n <= 4) gap = 0.55;
+  // Smaller gaps suit momentum-driven releases without an artificial launch impulse.
+  let gap = 0.28 + 0.04 * d + r() * (0.01 + 0.02 * d);
+  if (n > 8 && r() < 0.04 + 0.08 * d) gap += 0.04; // occasional stretch: needs a swing or hand-over-hand
+  if (n <= 4) gap = 0.28;
   const hNew = prev.y + gap - ZONE_H0;
-  gap += 0.08 * smoothstep(40, 52, hNew);
+  gap += 0.04 * smoothstep(40, 52, hNew);
   // hops go much higher in low gravity, so space spreads the bars out
   gap *= 1 + 0.25 * (1 - gravityScale(hNew)) / 0.58;
   if (g.weekly && g.weekly.id === 'one-hand') gap *= 0.8;
@@ -497,7 +496,7 @@ function genBars(g, upto) { while (g.bars[g.bars.length - 1].y < upto) addBar(g)
 // runs with the same upgrades and checks the player really earned enough coins to own them.
 const UPGRADES = [
   { id: 'pull', icon: '💪', name: 'Explosive Pull', desc: '+8% pulling strength per level' },
-  { id: 'spring', icon: '🦘', name: 'Spring Hop', desc: 'Extra upward kick when you let go with both hands' },
+  { id: 'spring', icon: '🦘', name: 'Pull Speed', desc: '+8% muscle shortening speed per level' },
   { id: 'stam', icon: '🫁', name: 'Endurance', desc: '-8% stamina drain per level' },
   { id: 'grip', icon: '🧤', name: 'Chalk Grip', desc: '+10% grip strength and safer fast catches' },
   { id: 'rec', icon: '🔋', name: 'Recovery', desc: '+15% stamina recovery while hanging' },
@@ -540,6 +539,7 @@ function newGame(seed, state, upgrades, rules) {
   const st = g.state; g.state = 'menu';
   for (let i = 0; i < 120; i++) stepSim(g, CFG.DT); // settle
   g.state = st; g.events.length = 0; g.t = 0; g.n = 0; g.stam = 100;
+  for (const h of g.hands) h.load = h.grip ? (g.weekly && g.weekly.id === 'one-hand' ? 1 : 0.5) : 0;
   g.headStartY = g.body.pts[HEAD].y;
   return g;
 }
@@ -552,29 +552,24 @@ function release(g, h, isThrow) {
   h.grip = null; h.exclBar = bar; h.exclT = 0.15; h.holdT = 0;
   if (isThrow) {
     h.reachT = CFG.REACH_TIME;
-    hp.py -= CFG.THROW_BOOST * CFG.DT;
-    g.stam -= 3;
     h.throwT = g.t;
     const other = g.hands[1 - h.side];
     const hop = !other.grip && g.t - other.throwT < 0.18;
-    if (hop) {
-      g.stam -= 3; g.hops++;
-      // Spring Hop: a whole-body kick upward on a two-handed release
-      const kick = 0.22 * g.up.spring * CFG.DT;
-      if (kick) for (const p of P) p.py -= kick;
-    }
+    if (hop) g.hops++;
     g.events.push({ type: 'throw', side: h.side, hop, x: hp.x, y: hp.y });
   }
 }
 
 function grab(g, h, b, x, speed, vy) {
   const P = g.body.pts, hp = P[h.idx];
-  const hvx = (hp.x - hp.px) / CFG.DT;
-  // a hard catch needs a moment for the arms to absorb it before the grip can tear loose
-  h.grip = { bar: b, x }; h.graceT = 0.2 + Math.min(0.35, speed * 0.06); h.holdT = 0; h.reachT = 0;
+  // Estimate braking load from body speed and available elbow travel. Catching a fast
+  // falling body with straight arms is harder than catching with room to bend.
+  const sh = P[h.sh], travel = clamp(0.60 - dist(sh, hp), 0.10, 0.35);
+  const closing = Math.max(0, -g.comV.y);
+  h.catchLoad = TOTAL_M * closing * closing / (2 * travel * WEIGHT);
+  h.grip = { bar: b, x }; h.load = Math.min(h.load, 1); h.holdT = 0; h.reachT = 0;
   hp.x = hp.px = x + b.ox; hp.y = hp.py = b.y + b.o;
-  if (b.type === 'wobbly') b.vox += clamp(hvx, -4, 4) * 0.35; // your momentum sets the bar swinging
-  b.vo -= Math.min(speed, 6) * 0.25; b.hit = 1;
+  b.hit = 1; // bar motion comes from the measured support force, once
   g.hangT = 0; g.catches++;
   let newBar = false, skipped = 0;
   if (b.i > g.maxBar) {
@@ -595,10 +590,31 @@ function die(g, cause) {
   g.events.push({ type: 'die', cause });
 }
 
-// An arm can launch its hand when it's pulled in, or when a strong pull has carried the shoulder up
+// An arm can release to reach when it's pulled in, or when a strong pull has carried the shoulder up
 // to (or past) the bar, where the arm straightens again above the hand.
 function armLoaded(P, h) { return dist(P[h.sh], P[h.idx]) < CFG.THROW_DIST || P[h.sh].y > P[h.idx].y - 0.05; }
 function rot(vx, vy, a) { const c = dcos(a), s = dsin(a); return [vx * c - vy * s, vx * s + vy * c]; }
+
+function segmentTorque(a, b, torque) {
+  const dx = b.x - a.x, dy = b.y - a.y, r2 = Math.max(0.01, dx * dx + dy * dy);
+  const fx = -dy * torque / r2, fy = dx * torque / r2;
+  b.fx += fx; b.fy += fy; a.fx -= fx; a.fy -= fy;
+}
+function segmentOmega(a, b, dt) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const vx = ((b.x - b.px) - (a.x - a.px)) / dt;
+  const vy = ((b.y - b.py) - (a.y - a.py)) / dt;
+  return (dx * vy - dy * vx) / Math.max(0.01, dx * dx + dy * dy);
+}
+function jointMotor(a, b, c, d, angle, stiffness, damping, cap, dt) {
+  const [tx, ty] = rot(b.x - a.x, b.y - a.y, angle);
+  const dx = d.x - c.x, dy = d.y - c.y;
+  const scale = Math.max(0.01, hyp(tx, ty) * hyp(dx, dy));
+  const error = (dx * ty - dy * tx) / scale;
+  const speed = segmentOmega(c, d, dt) - segmentOmega(a, b, dt);
+  const torque = clamp(stiffness * error - damping * speed, -cap, cap);
+  segmentTorque(c, d, torque); segmentTorque(a, b, -torque);
+}
 
 function stepSim(g, dt) {
   const B = g.body, P = B.pts, H = g.hands;
@@ -618,7 +634,7 @@ function stepSim(g, dt) {
   if (oneHand) { H[0].key = H[0].key || H[1].key; H[1].key = false; H[1].grip = null; H[1].reachT = 0; }
   const both = H[0].key && H[1].key;
 
-  // ---- key edges: releasing a contracted, pulling arm lets go & throws the hand upward
+  // ---- key edges: a loaded arm lets go, preserving its existing velocity
   for (const h of H) {
     if (h.key && !h.prevKey) {
       h.holdT = 0;
@@ -630,7 +646,7 @@ function stepSim(g, dt) {
       h.holdT = 0;
     }
     h.prevKey = h.key;
-    h.exclT -= dt; h.cool -= dt; h.graceT -= dt; h.reachT -= dt;
+    h.exclT -= dt; h.cool -= dt; h.reachT -= dt;
   }
 
   // ---- forces
@@ -640,74 +656,77 @@ function stepSim(g, dt) {
   for (const h of H) {
     const sh = P[h.sh], hp = P[h.idx];
     const dx = hp.x - sh.x, dy = hp.y - sh.y, d = hyp(dx, dy) || 1e-6;
-    h.pullF = 0;
+    h.pullF = 0; h.pullPower = 0;
+    const activeTarget = alive && h.grip && h.key ? 1 : 0;
+    h.activation += (activeTarget - h.activation) * Math.min(1, dt / CFG.ACTIVATE_TIME);
     if (!alive || (oneHand && h.side === 1)) continue;
     if (h.grip && h.key) {
-      const fmax = CFG.PULL_MAX * (oneHand ? 2.0 : both ? CFG.BOTH_BONUS : 1) * strength * WEIGHT * (1 + 0.08 * g.up.pull);
-      const f = Math.min(CFG.PULL_K * Math.max(0, d - CFG.PULL_TARGET), fmax);
-      sh.fx += dx / d * f; sh.fy += dy / d * f;
-      h.pullF = f;
+      // A simplified force-length/velocity muscle: the midrange is strongest,
+      // shortening loses force, and controlled lengthening can support more load.
+      const rvx = ((hp.x - hp.px) - (sh.x - sh.px)) / dt;
+      const rvy = ((hp.y - hp.py) - (sh.y - sh.py)) / dt;
+      const shortening = -(rvx * dx + rvy * dy) / d;
+      const speedMax = CFG.PULL_SPEED * (1 + 0.08 * g.up.spring);
+      const velocityFactor = shortening > 0 ? Math.max(0, 1 - shortening / speedMax) : 1 + Math.min(0.25, -shortening / speedMax);
+      const lengthFactor = 0.80 + 0.20 * clamp((d - CFG.PULL_TARGET) / 0.18, 0, 1);
+      // The one-hand weekly event deliberately supplies assisted strength.
+      const fmax = CFG.PULL_MAX * (oneHand ? 2 : 1) * strength * WEIGHT * (1 + 0.08 * g.up.pull);
+      const f = Math.min(CFG.PULL_K * Math.max(0, d - CFG.PULL_TARGET), fmax * velocityFactor * lengthFactor * h.activation);
+      const fx = dx / d * f, fy = dy / d * f;
+      sh.fx += fx; sh.fy += fy; hp.fx -= fx; hp.fy -= fy;
+      h.pullF = f; h.pullPower = f * Math.max(0, shortening);
     } else if (!h.grip && (h.key || h.reachT > 0)) {
-      const ox = h.side ? 0.27 : -0.27, oy = 1, ol = hyp(ox, oy);
-      const tx = sh.x + ox / ol * 0.6, ty = sh.y + oy / ol * 0.6;
-      const rvx = ((hp.x - hp.px) - (sh.x - sh.px)) / dt, rvy = ((hp.y - hp.py) - (sh.y - sh.py)) / dt;
-      let fx = (tx - hp.x) * CFG.REACH_K - rvx * 22, fy = (ty - hp.y) * CFG.REACH_K - rvy * 22;
-      const fm = hyp(fx, fy), cap = CFG.REACH_MAX * (0.45 + 0.55 * strength);
-      if (fm > cap) { fx *= cap / fm; fy *= cap / fm; }
-      hp.fx += fx; hp.fy += fy; sh.fx -= fx * 0.5; sh.fy -= fy * 0.5;
+      // Shoulder rotation reacts against the torso; elbow extension is central.
+      jointMotor(P[NECK], P[PEL], sh, hp, PI + (h.side ? -0.26 : 0.26), 70 * strength, 6, 28 * strength, dt);
+      const rvx = ((hp.x - hp.px) - (sh.x - sh.px)) / dt;
+      const rvy = ((hp.y - hp.py) - (sh.y - sh.py)) / dt;
+      const radialSpeed = (rvx * dx + rvy * dy) / d;
+      const f = clamp((0.60 - d) * CFG.REACH_K - radialSpeed * 22, -CFG.REACH_MAX, CFG.REACH_MAX) * strength;
+      const fx = dx / d * f, fy = dy / d * f;
+      hp.fx += fx; hp.fy += fy; sh.fx -= fx; sh.fy -= fy;
+
     }
   }
 
-  // legs: muscle tone + kicks. S swings legs right, K swings left, both = frog tuck
+  // A weak elbow motor chooses the bend direction without positional nudges.
+  for (const h of H) {
+    jointMotor(P[h.sh], P[h.el], P[h.el], P[h.idx], (h.side ? 1 : -1) * 0.35, 5, 0.6, 2, dt);
+  }
+
+  // Legs use bounded hip/knee torques. Each motor applies an equal opposite
+  // torque to its parent segment, so kicking redistributes angular momentum.
   {
-    let dxn = P[PEL].x - P[NECK].x, dyn = P[PEL].y - P[NECK].y;
-    const dl = hyp(dxn, dyn) || 1; dxn /= dl; dyn /= dl;
     let offT = 0, tuckT = 0;
     if (alive) {
       if (both) tuckT = 1;
-      else if (H[0].key) offT = 0.8;
-      else if (H[1].key) offT = -0.8;
+      else if (H[0].key) offT = 0.65;
+      else if (H[1].key) offT = -0.65;
     }
-    const k = Math.min(1, dt * 9);
+    const k = Math.min(1, dt * 6);
     g.legOff += (offT - g.legOff) * k; g.tuck += (tuckT - g.tuck) * k;
     const tone = alive ? 0.35 + 0.65 * s : 0.05;
-    const legs = [[LHIP, LKN, LFT, -1], [RHIP, RKN, RFT, 1]];
-    for (const [hi, ki, fi, sg] of legs) {
-      const hip = P[hi], kn = P[ki], ft = P[fi];
-      const la = g.legOff + sg * (0.07 + g.tuck * 1.05);
-      const [ux, uy] = rot(dxn, dyn, la);
-      const ktx = hip.x + ux * 0.42, kty = hip.y + uy * 0.42;
-      const hvx = (hip.x - hip.px) / dt, hvy = (hip.y - hip.py) / dt;
-      let fx = (ktx - kn.x) * 700 * tone - ((kn.x - kn.px) / dt - hvx) * 22 * tone;
-      let fy = (kty - kn.y) * 700 * tone - ((kn.y - kn.py) / dt - hvy) * 22 * tone;
-      kn.fx += fx; kn.fy += fy; hip.fx -= fx; hip.fy -= fy;
-      const sa = la * (1 - g.tuck) + sg * g.tuck * 0.15;
-      const [wx, wy] = rot(dxn, dyn, sa);
-      const ftx = kn.x + wx * 0.42, fty = kn.y + wy * 0.42;
-      const kvx = (kn.x - kn.px) / dt, kvy = (kn.y - kn.py) / dt;
-      fx = (ftx - ft.x) * 450 * tone - ((ft.x - ft.px) / dt - kvx) * 16 * tone;
-      fy = (fty - ft.y) * 450 * tone - ((ft.y - ft.py) / dt - kvy) * 16 * tone;
-      ft.fx += fx; ft.fy += fy; kn.fx -= fx; kn.fy -= fy;
+    for (const [hi, ki, fi, sg] of [[LHIP, LKN, LFT, -1], [RHIP, RKN, RFT, 1]]) {
+      const hipAngle = g.legOff + sg * (0.07 + g.tuck * 0.7);
+      jointMotor(P[NECK], P[PEL], P[hi], P[ki], hipAngle, 95 * tone, 10 * tone, 75 * tone, dt);
+      jointMotor(P[hi], P[ki], P[ki], P[fi], -sg * g.tuck * 1.25, 65 * tone, 6 * tone, 45 * tone, dt);
     }
   }
 
   // core stabilisation (strong when fresh -> less sway), tremor when tired
   const nGrip = (H[0].grip ? 1 : 0) + (H[1].grip ? 1 : 0);
   if (alive && nGrip > 0) {
-    const n = P[NECK], pl = P[PEL];
-    const rx = n.x - pl.x, ry = n.y - pl.y, r2 = rx * rx + ry * ry;
-    const vrx = ((n.x - n.px) - (pl.x - pl.px)) / dt, vry = ((n.y - n.py) - (pl.y - pl.py)) / dt;
-    const w = (rx * vry - ry * vrx) / r2;
-    const c = 30 * s * s;
-    const fx = ry * w * c, fy = -rx * w * c; // opposes rotation
-    n.fx += fx; n.fy += fy; pl.fx -= fx; pl.fy -= fy;
-
-    const ta = 70 * pow225(1 - s);
+    for (const h of H) if (h.grip) {
+      jointMotor(P[NECK], P[PEL], P[h.sh], P[h.idx], PI + (h.side ? 0.08 : -0.08), 5 * s, 3 * s * s, 12 * s, dt);
+    }
+    // Tremor is internal to each arm; it cannot lift the whole body in free air.
+    const ta = 45 * pow225(1 - s);
     g.trem.x += ((g.trng() * 2 - 1) - g.trem.x) * 0.25;
     g.trem.y += ((g.trng() * 2 - 1) - g.trem.y) * 0.25;
-    for (const i of [LSH, RSH, LEL, REL]) {
-      const sg = i === LSH || i === LEL ? 1 : -1;
-      P[i].fx += g.trem.x * ta * sg; P[i].fy += g.trem.y * ta;
+    for (const h of H) {
+      const sh = P[h.sh], hp = P[h.idx], dx = hp.x - sh.x, dy = hp.y - sh.y;
+      const d = hyp(dx, dy) || 1, f = g.trem.y * ta;
+      sh.fx += dx / d * f; sh.fy += dy / d * f;
+      hp.fx -= dx / d * f; hp.fy -= dy / d * f;
     }
   }
 
@@ -740,33 +759,9 @@ function stepSim(g, dt) {
       b.x -= dx * k * wb; b.y -= dy * k * wb;
     }
     // minimum distances (arm can't fold through itself, legs can't fold flat)
-    minDist(P, W, LSH, LH, 0.12); minDist(P, W, RSH, RH, 0.12);
+    minDist(P, W, LSH, LH, 0.19); minDist(P, W, RSH, RH, 0.19);
     minDist(P, W, LHIP, LFT, 0.34); minDist(P, W, RHIP, RFT, 0.34);
     minDist(P, W, LH, RH, 0.06);
-    // elbows bend outward
-    for (const h of H) {
-      const sh = P[h.sh], hp = P[h.idx], el = P[h.el];
-      const dx = hp.x - sh.x, dy = hp.y - sh.y, d = hyp(dx, dy) || 1e-6;
-      const half = d / 2;
-      if (half >= CFG.ARM_SEG) continue;
-      const off = Math.sqrt(CFG.ARM_SEG * CFG.ARM_SEG - half * half);
-      let nx = -dy / d, ny = dx / d;
-      // preferred bend: outward and toward the feet (pull-up elbows)
-      const sg = h.side ? 1 : -1;
-      const ax = P[RSH].x - P[LSH].x, ay = P[RSH].y - P[LSH].y, al = hyp(ax, ay) || 1;
-      const bx = P[PEL].x - P[NECK].x, by = P[PEL].y - P[NECK].y, bl = hyp(bx, by) || 1;
-      const prx = sg * ax / al + bx / bl * 0.8, pry = sg * ay / al + by / bl * 0.8;
-      let dot = (nx * prx + ny * pry) / hyp(prx, pry);
-      if (dot < 0) { nx = -nx; ny = -ny; dot = -dot; }
-      const tx = sh.x + dx / 2 + nx * off, ty = sh.y + dy / 2 + ny * off;
-      const kk = 0.04 * dot; // fades out near the ambiguous direction, so no snapping
-      const ddx = (tx - el.x) * kk, ddy = (ty - el.y) * kk;
-      el.x += ddx; el.y += ddy;
-      // equal & opposite nudge on shoulder/hand so the body can't propel itself
-      const wh = W(h.idx) > 0 ? 0.5 : 0, ws2 = 1 - wh;
-      sh.x -= ddx * el.m * ws2 / sh.m; sh.y -= ddy * el.m * ws2 / sh.m;
-      if (wh) { hp.x -= ddx * el.m * wh / hp.m; hp.y -= ddy * el.m * wh / hp.m; }
-    }
     // floor
     for (let i = 0; i < P.length; i++) {
       const p = P[i];
@@ -806,15 +801,25 @@ function stepSim(g, dt) {
 
   const nG = (H[0].grip ? 1 : 0) + (H[1].grip ? 1 : 0);
   if (nG > 0) {
-    const inst = Math.min(hyp(Fx, Fy) / WEIGHT / nG, 3.2);
+    let leftShare = 1;
+    if (nG === 2) {
+      let comX = 0; for (const p of P) comX += p.x * p.m; comX /= TOTAL_M;
+      const lx = P[LH].x, rx = P[RH].x;
+      leftShare = Math.abs(rx - lx) > 0.05 ? clamp((rx - comX) / (rx - lx), 0.1, 0.9) : 0.5;
+      // A pulling arm takes more of the dynamic load than the resting arm.
+      leftShare = clamp(leftShare + (H[0].pullF - H[1].pullF) / WEIGHT * 0.15, 0.1, 0.9);
+    }
     const gripBase = 1.0 + 2.2 * s - g.exhaustT * 0.35;
     for (const h of H) {
       if (!h.grip) continue;
-      h.load += (inst - h.load) * Math.min(1, dt / 0.12);
-      h.grip.bar.f -= clamp(g.Fs.y / nG, -3 * WEIGHT, 3 * WEIGHT);
-      h.grip.bar.fx -= clamp(g.Fs.x / nG, -3 * WEIGHT, 3 * WEIGHT);
+      const share = nG === 1 ? 1 : h.side === 0 ? leftShare : 1 - leftShare;
+      const inst = Math.min(hyp(Fx, Fy) / WEIGHT * share, 6);
+      h.catchLoad *= Math.max(0, 1 - dt / 0.15);
+      h.load += (Math.max(inst, h.catchLoad * share) - h.load) * Math.min(1, dt / 0.06);
+      h.grip.bar.f -= clamp(g.Fs.y * share, -3 * WEIGHT, 3 * WEIGHT);
+      h.grip.bar.fx -= clamp(g.Fs.x * share, -3 * WEIGHT, 3 * WEIGHT);
       const gripMax = gripBase * (h.grip.bar.type === 'butter' ? 0.7 : h.grip.bar.type === 'icy' ? 0.62 : 1) * (1 + 0.1 * g.up.grip);
-      if (alive && h.graceT <= 0 && h.load > gripMax) {
+      if (playing && h.load > gripMax) {
         const bar = h.grip.bar;
         release(g, h, false);
         h.cool = 0.25; h.exclBar = bar; h.exclT = 0.4;
@@ -861,11 +866,11 @@ function stepSim(g, dt) {
         const cx = lerp(hp.px, hp.x, t);
         if (cx < b.x0 + b.ox - 0.05 || cx > b.x1 + b.ox + 0.05) continue;
         // the first bars forgive sloppier catches while you learn
-        const limit = (vy > 0 ? 6 : 3.2) + 4.3 * s + 2.5 * Math.max(0, 1 - b.i / 12);
+        const limit = (vy > 0 ? 4.5 : 2.5) + 2.5 * s + 0.5 * g.up.grip;
         if (sp <= limit) {
           grab(g, h, b, clamp(cx - b.ox, b.x0 + 0.02, b.x1 - 0.02), sp, vy);
         } else {
-          hp.py = hp.y + (hp.y - hp.py) * 0.3; // bounce off
+          hp.px = hp.x - (hp.x - hp.px) * 0.3; hp.py = hp.y - (hp.y - hp.py) * 0.3; // lose speed on contact
           h.cool = 0.12; h.exclBar = b; h.exclT = 0.25;
           b.vo += vy * 0.05; b.hit = 1;
           g.events.push({ type: 'fumble', side: h.side, x: cx, y: by, speed: sp });
@@ -882,8 +887,10 @@ function stepSim(g, dt) {
     let pulling = 0, reaching = 0;
     for (const h of H) { if (h.grip && h.key) pulling++; else if (!h.grip && h.key) reaching++; }
     let drain = 0, rec = 0;
-    if (pulling === 2) drain += 30;
-    else if (pulling === 1) drain += 13;
+    for (const h of H) if (h.grip && h.key) {
+      const effort = h.pullF / (CFG.PULL_MAX * WEIGHT);
+      drain += 6 + 12 * effort * effort + 8 * h.pullPower / WEIGHT;
+    }
     drain += reaching * 4;
     if (nGr > 0) g.hangT += dt;
     const icy = (H[0].grip && H[0].grip.bar.type === 'icy' ? 1 : 0) + (H[1].grip && H[1].grip.bar.type === 'icy' ? 1 : 0);
@@ -946,24 +953,27 @@ function minDist(P, W, i, j, m) {
 
 function score(g) { return Math.round(g.maxHeight * 100 + g.bonus); }
 
-// The release cue. 2 = sweet spot: arms pulled in tight while the body is still rising fast (measured
-// to give ~90%+ of the best possible hop). 1 = late: the rise has stalled, the hop will be weak.
+// The release cue predicts whether the rising shoulder plus an arm extension can reach
+// the next bar. 2 = enough clearance; 1 = late, with little upward momentum.
 // 0 = too early (or not pulling). Display only: it never changes the physics.
 function throwReady(g, h) {
   if (!h.grip || !h.key || h.holdT < CFG.THROW_HOLD) return 0;
   const P = g.body.pts;
   if (!armLoaded(P, h)) return 0;
   const sh = P[h.sh], hp = P[h.idx], vy = (sh.y - sh.py) / CFG.DT;
-  if (vy <= 1.5) return 1;
-  return dist(sh, hp) < 0.22 || sh.y > hp.y - 0.05 ? 2 : 0;
+  if (vy <= 0.5) return 1;
+  const next = g.bars.find(b => b.i > h.grip.bar.i);
+  const reachTime = 0.15;
+  const projected = sh.y + 0.55 + vy * reachTime - 0.5 * CFG.G * g.grav * reachTime * reachTime;
+  return next && projected >= next.y + next.o + 0.025 ? 2 : 0;
 }
 
 // ---------------- Replays ----------------
 // A run is fully determined by its ladder seed and the per-step S/K inputs, so a replay is
 // just the seed plus the steps where the inputs changed. Format (bytes, then base64url):
 // [version][kind][seed u32][day varint][total steps varint][n][n upgrade levels][changes: varint(delta*4 + bits)...]
-const REPLAY_VERSION = 2; // unchanged endless/daily physics and boards
-const WEEKLY_REPLAY_VERSION = 3; // weekly rules only; old servers reject these instead of ranking them all-time
+const REPLAY_VERSION = 4; // momentum-based muscle physics; older runs use separate boards
+const WEEKLY_REPLAY_VERSION = 5; // same physics with weekly rules
 function pushVarint(out, v) { while (v >= 128) { out.push((v & 127) | 128); v = Math.floor(v / 128); } out.push(v); }
 function readVarint(buf, pos) {
   let v = 0, mul = 1, b;
@@ -1113,8 +1123,8 @@ if (typeof document !== 'undefined') (function boot() {
 
   // ---------- storage ----------
   let best = 0;
-  try { best = parseFloat(localStorage.getItem('rtb_best')) || 0; } catch (e) { best = 0; }
-  function saveBest() { try { localStorage.setItem('rtb_best', String(best)); } catch (e) {} }
+  try { best = parseFloat(localStorage.getItem('rtb_best_v' + REPLAY_VERSION)) || 0; } catch (e) { best = 0; }
+  function saveBest() { try { localStorage.setItem('rtb_best_v' + REPLAY_VERSION, String(best)); } catch (e) {} }
 
   // ---------- audio ----------
   let ac = null, master = null, muted = false, slowmo = 1; // slowmo < 1 drops pitch and stretches sounds for the fall replay
@@ -1290,11 +1300,11 @@ if (typeof document !== 'undefined') (function boot() {
   let tutDone = false;
   try { tutDone = localStorage.getItem('rtb_tut') === '1'; } catch (e) {}
   function loadDaily() {
-    try { const d = JSON.parse(localStorage.getItem('rtb_daily') || 'null'); if (d && d.day === today) return d; } catch (e) {}
+    try { const d = JSON.parse(localStorage.getItem('rtb_daily_v' + REPLAY_VERSION) || 'null'); if (d && d.day === today) return d; } catch (e) {}
     return { day: today, best: 0, replay: null };
   }
   let daily = loadDaily();
-  function saveDaily() { try { localStorage.setItem('rtb_daily', JSON.stringify(daily)); } catch (e) {} }
+  function saveDaily() { try { localStorage.setItem('rtb_daily_v' + REPLAY_VERSION, JSON.stringify(daily)); } catch (e) {} }
 
   // blood on floor impacts (toggle: menu button or B, remembered)
   let blood = true, splats = [];
