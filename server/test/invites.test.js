@@ -41,4 +41,7 @@ test('invite URL uses configured public origin and preview text is escaped', () 
   assert.equal(inviteUrl(req, code, {publicUrl:'https://game.example/'}), 'https://game.example/challenge/' + code);
   const page = invitePage('<title>Raising the Bar</title>', {title:'<script>',entries:[{creator:true,name:'"<img>',height:null}]}, 'https://game.example/?x="');
   assert.ok(!page.includes('<img>')); assert.ok(!page.includes('<script>')); assert.match(page, /&quot;&lt;img&gt;/);
+  const themed = invitePage('<meta name="description" content="Game description"><title>Raising the Bar · Night Arena</title>', {title:'Friends Ladder', entries:[{creator:true,name:'Host',height:null}]}, 'https://game.example/');
+  assert.match(themed, /<title>Host challenged you/);
+  assert.equal((themed.match(/name="description"/g) || []).length, 1);
 });

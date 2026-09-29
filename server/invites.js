@@ -18,7 +18,7 @@ function invitePage(html, challenge, url) {
   const title = `${host ? host.name : 'A friend'} challenged you — Raising the Bar`;
   const leader = challenge.entries.find(e => e.height !== null);
   const description = `${challenge.title}. ${leader ? 'Beat ' + leader.height.toFixed(2) + 'm. ' : ''}Tap to join and play. Same ladder, no upgrades.`;
-  return html.replace('<title>Raising the Bar</title>', `<title>${escapeHtml(title)}</title>
+  return html.replace(/<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i, '').replace(/<title>[^<]*<\/title>/i, `<title>${escapeHtml(title)}</title>
 <meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(description)}">
 <meta property="og:type" content="website">

@@ -5,190 +5,201 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#7cc8ff">
-<title>Raising the Bar</title>
+<meta name="theme-color" content="#080e14">
+<meta name="description" content="A physics climbing challenge. Pull, release and catch your way through endless ladders, daily competitions and weekly events.">
+<title>Raising the Bar · Night Arena</title>
 <!-- Leaderboard server address, e.g. https://rtb.example.com. Leave empty to use the page's own
      server when it has one (see server/README.md); the game works offline without it. -->
 <meta name="rtb-api" content="">
 <style>
-  :root {
-    --ink: #1d1b2f;
-    --paper: #fff8ec;
-    --accent: #ff5a3c;
-    --left: #2f7bff;
-    --right: #ff8a1f;
+  :root { color-scheme: dark; --ink:#eef3f6; --paper:#111b22; --accent:#c8ff3e; --left:#64dfff; --right:#ffb66b; --muted:#a1b2bd; --line:#30404b; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; overflow:hidden; background:#080e14; overscroll-behavior:none; }
+  body { font-family:"Segoe UI",Arial,system-ui,sans-serif; color:var(--ink); user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; }
+  canvas { display:block; width:100vw; height:100vh; height:100dvh; touch-action:none; }
+  #safe { position:fixed; visibility:hidden; pointer-events:none; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  body:not(.touch) .touch-only, body.touch .kb-only { display:none !important; }
+  [hidden] { display:none !important; }
+  button,input,select,summary,a { -webkit-tap-highlight-color:transparent; }
+  button { font:inherit; font-size:1rem; font-weight:750; cursor:pointer; border:1px solid var(--line); background:var(--accent); color:#121a07; border-radius:8px; padding:13px 20px; min-height:46px; margin:4px; transition:background .15s, border-color .15s, transform .15s; }
+  button:hover { filter:brightness(1.12); border-color:var(--accent); }
+  button:active { transform:translateY(2px); }
+  button:disabled { opacity:.45; cursor:default; }
+  button:focus-visible,summary:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible { outline:3px solid var(--accent); outline-offset:4px; }
+  button.secondary,button.small,.more button,.tab { background:#1c2a34; color:var(--ink); }
+  button.small { font-size:.875rem; padding:10px 13px; margin:0; }
+  button.toggle { font-size:.875rem; padding:8px 12px; min-height:42px; margin:0; background:transparent; }
+  .overlay { position:fixed; inset:0; display:flex; padding:max(20px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(20px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left)); overflow-y:auto; touch-action:pan-y; background:rgba(5,10,15,.8); backdrop-filter:blur(10px); transition:opacity .18s; z-index:5; }
+  .overlay.hidden { opacity:0; pointer-events:none; visibility:hidden; }
+  .overlay > .card { margin:auto; flex-shrink:0; }
+  .card { width:100%; max-width:560px; padding:30px; border:1px solid var(--line); border-radius:16px; background:var(--paper); box-shadow:0 24px 90px #0008; text-align:center; }
+  #menu { background:linear-gradient(110deg,rgba(5,10,15,.94),rgba(5,10,15,.73)); }
+  #menu > .card { max-width:1080px; padding:0; text-align:left; background:transparent; border:0; box-shadow:none; }
+  .lobby-top { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:16px; padding-bottom:24px; border-bottom:1px solid var(--line); }
+  .wordmark { display:flex; align-items:center; gap:12px; font-size:.875rem; font-weight:800; letter-spacing:.12em; }
+  .brand-mark { display:inline-grid; place-items:center; width:36px; height:36px; color:#0e1605; background:var(--accent); border-radius:6px; font-size:23px; font-weight:900; letter-spacing:-.1em; }
+  .edition { font-family:ui-monospace,monospace; font-size:.75rem; letter-spacing:.08em; color:var(--muted); }
+  .lobby-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.05fr); gap:64px; padding:40px 0 30px; align-items:start; }
+  .lobby-grid > *, .menurow > * { min-width:0; overflow-wrap:anywhere; }
+  .eyebrow { font-family:ui-monospace,monospace; color:var(--accent); font-size:.75rem; letter-spacing:.16em; font-weight:700; }
+  h1 { font-family:"Arial Black","Segoe UI",sans-serif; font-size:clamp(46px,6vw,80px); line-height:.98; font-weight:950; letter-spacing:-.055em; text-transform:uppercase; margin:18px 0; }
+  h1 .up { color:var(--accent); }
+  .sub { max-width:360px; font-size:1rem; color:var(--muted); line-height:1.6; margin:0 0 24px; }
+  .record { display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center; padding:16px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); max-width:370px; }
+  .record span { font-size:.875rem; color:var(--muted); }
+  .record strong { font-size:2rem; letter-spacing:-.05em; font-variant-numeric:tabular-nums; }
+  .howto { margin:22px 0 0; color:var(--muted); max-width:400px; font-size:.875rem; }
+  .howto summary { cursor:pointer; padding:8px 0; font-weight:700; color:var(--ink); }
+  .controls { display:grid; grid-template-columns:auto 1fr; gap:10px 14px; align-items:center; margin:14px 0; font-size:.875rem; }
+  .key { display:inline-flex; align-items:center; justify-content:center; min-width:34px; height:34px; font-size:1rem; font-weight:800; border:1px solid var(--line); border-bottom-width:3px; border-radius:6px; background:#182732; }
+  .key.l { color:var(--left); } .key.r { color:var(--right); }
+  .tips { font-size:.875rem; line-height:1.6; margin:12px 0; color:var(--muted); }
+  .tips b { color:var(--ink); }
+  .touchpads { display:flex; gap:8px; margin:14px 0; }
+  .touchpads div { flex:1; padding:12px; background:#182732; border:1px solid var(--line); border-radius:8px; font-size:.875rem; line-height:1.5; font-weight:700; }
+  .touchpads .l { color:var(--left); } .touchpads .r { color:var(--right); }
+  .mode-heading { display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; align-items:center; margin:0 0 14px; font-size:.875rem; font-weight:700; }
+  .mode-heading span { color:var(--muted); font-size:.75rem; font-family:ui-monospace,monospace; font-weight:400; }
+  .mode-card { display:block; width:100%; text-align:left; padding:20px 22px; margin:0 0 12px; border-radius:10px; border:1px solid var(--line); background:#111e27; color:var(--ink); }
+  .mode-card .mode-kicker { display:block; font-family:ui-monospace,monospace; font-size:.75rem; letter-spacing:.1em; margin-bottom:8px; color:var(--muted); }
+  .mode-card .mode-name { display:block; font-size:1.625rem; font-weight:850; letter-spacing:-.035em; }
+  .mode-card .mode-note { display:block; margin-top:8px; font-size:.875rem; font-weight:400; line-height:1.5; color:var(--muted); }
+  .mode-card.primary { background:var(--accent); color:#101a04; border-color:var(--accent); }
+  .mode-card.primary .mode-kicker,.mode-card.primary .mode-note { color:#344a13; }
+  .mode-card.daily .mode-kicker { color:var(--left); }
+  .dailyinfo { font-size:.875rem; line-height:1.5; color:var(--muted); margin:0 4px 16px; }
+  .weeklycard { padding:20px 22px; margin:0; border:1px solid #52642b; border-radius:10px; background:linear-gradient(120deg,#1a2620,#141f27); }
+  .weeklycard h2 { font-family:inherit; margin:9px 0; font-size:1.5rem; letter-spacing:-.03em; text-align:left; }
+  .weeklycard p { font-size:.875rem; color:var(--muted); line-height:1.5; margin:8px 0; }
+  button.weekly { margin:8px 0 4px; width:100%; background:#243526; color:var(--accent); border-color:#52642b; }
+  .weeklycard .reset { color:var(--muted); font-family:ui-monospace,monospace; font-size:.75rem; line-height:1.5; margin-top:10px; }
+  .menurow { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; border-top:1px solid var(--line); padding-top:22px; }
+  .menurow button { font-size:.875rem; min-height:52px; text-align:center; border-color:var(--line); background:#15212a; }
+  .menurow button:first-child { color:var(--accent); }
+  .lobby-bottom { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-top:20px; }
+  .settings { display:flex; flex-wrap:wrap; gap:8px; }
+  .profile { color:var(--muted); font-size:.875rem; line-height:1.5; }
+  .profile a { color:var(--accent); text-decoration:underline; cursor:pointer; }
+  .hint { color:var(--muted); font-size:.75rem; line-height:1.6; margin-top:12px; }
+  .challenge { background:#1e3028; border:1px solid #52642b; padding:18px; border-radius:10px; margin-bottom:24px; }
+  .challenge .ctitle { color:var(--accent); font-size:.875rem; font-weight:800; }
+  .challenge #cText { margin:10px 0; line-height:1.5; }
+  .panel { z-index:15; background:rgba(5,10,15,.92); }
+  #friends { z-index:20; }
+  .card.wide { max-width:650px; position:relative; text-align:left; }
+  .card h2 { font-size:1.75rem; font-weight:850; letter-spacing:-.04em; margin:0 40px 24px 0; text-align:left; }
+  .close { position:absolute; top:18px; right:18px; margin:0; width:44px; padding:8px; color:var(--muted); background:#1c2a34; }
+  .tabs { display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
+  .tab { flex:1; font-size:.875rem; padding:10px 12px; margin:0; white-space:nowrap; }
+  .tab.on { color:#111a07; background:var(--accent); border-color:var(--accent); }
+  .lbstatus { text-align:center; color:var(--muted); font-size:.875rem; line-height:1.6; margin:10px 0; min-height:1.3em; }
+  .lblist { list-style:none; padding:0; margin:0 0 16px; max-height:46vh; overflow:auto; border:1px solid var(--line); border-radius:10px; background:#0c151d; }
+  .lblist li { display:flex; gap:8px; align-items:center; padding:12px; border-bottom:1px solid #24343f; font-size:1rem; }
+  .lblist li:last-child { border-bottom:0; }
+  .lblist li.you { background:#253522; font-weight:750; }
+  .lblist li.gap { justify-content:center; color:var(--muted); font-size:.75rem; }
+  .lblist .rk { width:2em; flex:none; font-family:ui-monospace,monospace; color:var(--muted); text-align:right; }
+  .lblist .nm { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .lblist .ht { font-weight:800; color:var(--accent); white-space:nowrap; }
+  .lblist button { font-size:.875rem; min-width:40px; min-height:40px; padding:6px; margin:0; background:#1c2a34; color:var(--ink); }
+  .profilebox { padding:16px; background:#15212a; border:1px solid var(--line); border-radius:10px; font-size:.875rem; line-height:1.6; }
+  .profilebox summary { font-weight:750; cursor:pointer; }
+  .profilebox label { display:block; margin-top:12px; }
+  .profilebox .row { display:flex; align-items:center; gap:8px; margin:8px 0; }
+  input,select { font:inherit; color:var(--ink); background:#0a141c; border:1px solid #425461; padding:12px; border-radius:8px; min-width:0; }
+  .profilebox input { flex:1; font-size:1rem; }
+  .profilebox code { flex:1; background:#0a141c; padding:10px; border-radius:6px; font-size:1rem; user-select:all; -webkit-user-select:all; }
+  .profilebox .sync { margin-top:16px; }
+  .profilebox .fine { font-size:.75rem; color:var(--muted); }
+  .achgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; max-height:60vh; overflow:auto; }
+  .achcard { border:1px solid var(--line); border-radius:10px; padding:16px; background:#182630; }
+  .achcard .ic { font-size:28px; margin-bottom:8px; }
+  .achcard .an { font-size:.9375rem; font-weight:800; }
+  .achcard .ad { font-size:.875rem; line-height:1.5; color:var(--muted); margin-top:4px; }
+  .achcard.locked { background:#0e1820; color:var(--muted); }
+  .achcard.locked .ic { filter:grayscale(1); opacity:.5; }
+  .achcard.item { cursor:pointer; }
+  .achcard.item.on { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+  .achcard.item.locked { cursor:default; }
+  .coins { color:var(--accent); font-size:1rem; font-weight:750; margin-top:10px; }
+  .wallet { font-size:1.75rem; font-weight:800; color:var(--accent); margin-bottom:20px; }
+  .shoplist { display:flex; flex-direction:column; gap:10px; max-height:56vh; overflow:auto; margin-bottom:16px; }
+  .uprow { display:flex; align-items:center; gap:12px; border:1px solid var(--line); border-radius:10px; background:#182630; padding:16px; }
+  .uprow .ic { font-size:28px; }
+  .uprow .info { flex:1; min-width:0; }
+  .uprow .nm { font-size:1rem; font-weight:750; }
+  .uprow .ds { font-size:.875rem; line-height:1.5; color:var(--muted); margin-top:4px; }
+  .uprow button { padding:10px; font-size:.875rem; margin:0; white-space:nowrap; }
+  .pips { display:flex; gap:4px; margin-top:8px; }
+  .pips i { width:18px; height:5px; border-radius:2px; background:#415360; }
+  .pips i.on { background:var(--accent); }
+  .preview { display:block; width:100%; height:190px; border:1px solid var(--line); border-radius:10px; margin-bottom:16px; background:#10202c; }
+  .fell { font-family:"Arial Black",sans-serif; font-weight:900; font-size:clamp(38px,8vw,60px); letter-spacing:-.05em; line-height:1.1; margin:12px 0 20px; color:var(--ink); }
+  .omode { color:var(--accent); font-family:ui-monospace,monospace; font-size:.75rem; letter-spacing:.1em; }
+  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; padding:20px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); margin:16px 0; }
+  .stat .lbl { font-size:.75rem; color:var(--muted); letter-spacing:.1em; }
+  .stat .val { font-size:2rem; font-weight:850; font-variant-numeric:tabular-nums; margin-top:6px; }
+  .stat:first-child .val { color:var(--accent); }
+  .newbest { display:inline-block; border:1px solid #52642b; padding:8px 14px; border-radius:6px; color:var(--accent); background:#26351e; font-size:.875rem; font-weight:800; }
+  .quip { font-size:1rem; font-weight:600; line-height:1.5; margin:18px 0 8px; }
+  .cause { font-size:.875rem; color:var(--muted); margin-bottom:18px; }
+  .vs { font-weight:750; font-size:1rem; margin-top:12px; }
+  .vs.win { color:var(--accent); } .vs.lose { color:var(--right); }
+  .rank { font-size:1rem; font-weight:750; color:var(--left); margin:10px 0; }
+  .more { display:flex; justify-content:center; flex-wrap:wrap; gap:6px; margin-top:14px; }
+  .more button { font-size:.875rem; padding:10px 12px; margin:0; }
+  #friends h3 { font-size:1.25rem; margin:24px 0 12px; }
+  #friends input,#friends select { width:100%; font-size:1rem; margin-top:8px; }
+  #friends label { display:block; font-size:.875rem; font-weight:750; margin-top:16px; }
+  #friendStatus { font-size:.9375rem; line-height:1.5; min-height:24px; color:var(--muted); }
+  .friend-actions { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
+  .friend-rules,.friend-note { font-size:.875rem; line-height:1.6; color:var(--muted); }
+  .friend-board { max-height:none; }
+  .friend-board li { flex-wrap:wrap; }
+  .friend-board .nm { white-space:normal; min-width:90px; }
+  .friend-item { border-top:1px solid var(--line); padding:16px 0; }
+  .friend-item p { font-size:.875rem; line-height:1.6; }
+  .friend-winner { font-size:1.25rem; font-weight:800; background:#26351e; color:var(--accent); padding:16px; border-radius:8px; }
+  .friend-invite { margin:18px 0; padding:16px; border:1px solid var(--line); border-radius:10px; background:#15212a; }
+  .friend-invite summary { font-weight:750; cursor:pointer; }
+  .friend-qr { display:block; width:220px; max-width:100%; height:auto; margin:16px auto; padding:10px; background:white; border-radius:8px; }
+  .friend-invite a { color:var(--left); font-weight:700; padding:10px 0; display:inline-block; overflow-wrap:anywhere; }
+  .friend-invite p { font-size:.875rem; line-height:1.6; }
+  #friends[aria-busy="true"] button:not(.close) { opacity:.6; pointer-events:none; }
+  body.tabletop .overlay { bottom:var(--hinge-inset,0px); }
+  body.tabletop .tips,body.tabletop .hint { display:none; }
+  @media (max-width:760px) {
+    .overlay { padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left)); }
+    .lobby-top { padding-bottom:16px; }
+    .wordmark { font-size:.75rem; gap:8px; letter-spacing:.07em; }
+    .edition { font-size:.75rem; }
+    .lobby-grid { grid-template-columns:minmax(0,1fr); gap:24px; padding:24px 0; }
+    h1 { font-size:clamp(46px,11vw,70px); margin:12px 0; }
+    .sub { margin-bottom:16px; max-width:none; }
+    .record { max-width:none; padding:12px 0; }
+    .record strong { font-size:1.75rem; }
+    .howto { margin:12px 0 0; max-width:none; }
+    .mode-card { padding:18px; }
+    .mode-card .mode-name { font-size:1.5rem; }
+    .weeklycard { padding:18px; }
+    .menurow { grid-template-columns:repeat(2,1fr); padding-top:16px; }
+    .menurow button:first-child { grid-column:1/-1; }
+    .lobby-bottom { margin-top:16px; }
+    .card { padding:24px 18px; border-radius:12px; }
+    .stats { gap:6px; } .stat .val { font-size:1.625rem; }
+    .uprow { padding:12px; gap:8px; }
+    .achgrid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .achcard { padding:12px; }
+    .lblist li { padding:10px 8px; gap:5px; font-size:.875rem; }
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #8fd3ff; overscroll-behavior: none; }
-  body { font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif; color: var(--ink); user-select: none;
-    -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
-  canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; touch-action: none; }
-  #safe { position: fixed; visibility: hidden; pointer-events: none; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-  body:not(.touch) .touch-only { display: none !important; }
-  body.touch .kb-only { display: none !important; }
-  .overlay > .card { margin: auto; } /* centres, but scrolls instead of clipping when tall */
-  .overlay {
-    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-    background: rgba(29, 27, 47, 0.35); padding: 16px; transition: opacity .2s;
-    overflow-y: auto; touch-action: pan-y;
+  @media (max-height:620px) and (min-width:761px) {
+    .lobby-grid { gap:40px; padding:24px 0; }
+    h1 { font-size:54px; }
+    .lobby-top { padding-bottom:16px; }
+    .mode-card { padding:14px 18px; }
+    .weeklycard { padding:16px 18px; }
   }
-  .overlay.hidden { opacity: 0; pointer-events: none; visibility: hidden; }
-  body.tabletop .overlay { bottom: var(--hinge-inset, 0px); }
-  body.tabletop .card { zoom: 0.72; }
-  body.tabletop .tips, body.tabletop .hint, body.tabletop .touchpads { display: none; }
-  .card {
-    background: var(--paper); border: 4px solid var(--ink); border-radius: 20px;
-    box-shadow: 10px 10px 0 var(--ink); padding: 28px 34px; max-width: 520px; width: 100%;
-    text-align: center; transform: rotate(-1deg);
-  }
-  h1 {
-    margin: 0; font-family: Impact, "Arial Black", "Trebuchet MS", sans-serif; font-weight: 900;
-    font-size: clamp(40px, 8vw, 68px); line-height: .95; letter-spacing: 1px; text-transform: uppercase;
-  }
-  h1 .bar { display: block; height: 10px; margin: 10px auto 0; width: 88%; background: var(--ink); border-radius: 6px;
-    box-shadow: 0 -6px 0 -2px #b9bcc8 inset; }
-  h1 .up { color: var(--accent); display: inline-block; transform: translateY(-6px) rotate(-3deg); }
-  .sub { font-size: 20px; margin: 14px 0 18px; font-weight: bold; }
-  .controls { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; text-align: left; margin: 0 auto 14px; width: fit-content; font-size: 18px; align-items: center; }
-  .key {
-    display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 40px; padding: 0 8px;
-    border: 3px solid var(--ink); border-radius: 9px; background: #fff; font-weight: 900; font-size: 20px;
-    box-shadow: 0 4px 0 var(--ink);
-  }
-  .key.l { background: #dbe8ff; color: var(--left); }
-  .key.r { background: #ffe9d4; color: #d86a00; }
-  .tips { font-size: 14px; line-height: 1.45; margin: 6px 0 18px; opacity: .85; }
-  .tips b { color: var(--accent); }
-  button {
-    font: inherit; font-weight: 900; font-size: 24px; letter-spacing: 1px; text-transform: uppercase;
-    background: var(--accent); color: #fff; border: 4px solid var(--ink); border-radius: 14px;
-    padding: 12px 34px; cursor: pointer; box-shadow: 0 6px 0 var(--ink); margin: 4px;
-  }
-  button:hover { filter: brightness(1.08); }
-  button:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--ink); }
-  button.secondary { background: #fff; color: var(--ink); font-size: 18px; padding: 10px 22px; }
-  .hint { font-size: 13px; opacity: .7; margin-top: 10px; }
-  .fell { font-family: Impact, "Arial Black", sans-serif; font-size: clamp(44px, 9vw, 72px); margin: 0; color: var(--accent); letter-spacing: 2px; }
-  .stats { display: flex; justify-content: center; gap: 26px; margin: 10px 0 6px; flex-wrap: wrap; }
-  .stat { min-width: 110px; }
-  .stat .lbl { font-size: 13px; font-weight: 900; letter-spacing: 2px; opacity: .6; }
-  .stat .val { font-size: 34px; font-weight: 900; }
-  .newbest { display: inline-block; background: #ffd23f; border: 3px solid var(--ink); border-radius: 8px; padding: 2px 10px; font-weight: 900; transform: rotate(-3deg); margin: 4px 0; }
-  .quip { font-size: 21px; font-style: italic; font-weight: bold; margin: 14px 0 20px; min-height: 1.4em; }
-  .cause { font-size: 14px; opacity: .7; margin-top: -10px; margin-bottom: 14px; }
-  button.daily { background: #2f7bff; font-size: 20px; padding: 10px 24px; }
-  .weeklycard { margin: 14px 0 8px; padding: 12px; background: #fff2b3; border: 3px solid var(--ink); border-radius: 14px; }
-  .weeklycard .eyebrow { font-size: 11px; font-weight: 900; letter-spacing: 2px; }
-  .weeklycard h2 { margin: 4px 0; font-size: 22px; }
-  .weeklycard p { font-size: 13px; margin: 5px 0; }
-  button.weekly { background: #8653cf; font-size: 17px; padding: 10px 18px; }
-  .weeklycard .reset { font-size: 11px; opacity: .8; }
-  button.toggle { font-size: 14px; padding: 6px 14px; margin-top: 10px; box-shadow: 0 4px 0 var(--ink); }
-  .dailyinfo { font-size: 13px; font-weight: bold; opacity: .75; min-height: 1.2em; margin-top: 2px; }
-  .challenge { background: #ffd23f; border: 3px solid var(--ink); border-radius: 14px; padding: 10px 12px 12px; margin: -6px 0 16px; transform: rotate(1deg); }
-  #menu.has-challenge .tips, #menu.has-challenge .sub { display: none; }
-  .challenge .ctitle { font-weight: 900; letter-spacing: 1px; }
-  .challenge #cText { font-size: 15px; margin: 4px 0 8px; }
-  .challenge button { font-size: 18px; padding: 8px 18px; }
-  .omode { font-size: 13px; font-weight: 900; letter-spacing: 2px; opacity: .6; }
-  .vs { font-weight: 900; font-size: 18px; margin: 4px 0 -4px; min-height: 0; }
-  .vs.win { color: #1f9d4f; } .vs.lose { color: #c2410c; }
-  .more { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 8px; }
-  .more button { font-size: 14px; padding: 8px 12px; margin: 0; box-shadow: 0 4px 0 var(--ink); background: #fff; color: var(--ink); }
-  .menurow { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
-  button.small { font-size: 15px; padding: 8px 14px; margin: 0; box-shadow: 0 4px 0 var(--ink); }
-  .profile { font-size: 13px; font-weight: bold; opacity: .75; margin-top: 8px; min-height: 1.2em; }
-  .profile a { color: var(--accent); cursor: pointer; text-decoration: underline; }
-  .rank { font-weight: 900; font-size: 17px; margin: 6px 0 0; min-height: 1.3em; color: #6b3fa0; }
-  .card.wide { max-width: 560px; position: relative; transform: none; text-align: left; }
-  .card h2 { margin: 0 40px 12px; font-family: Impact, "Arial Black", sans-serif; font-size: clamp(24px, 7vw, 34px); letter-spacing: 1px; text-align: center; }
-  .close { position: absolute; top: 10px; right: 10px; font-size: 18px; padding: 4px 12px; margin: 0; background: #fff; color: var(--ink); box-shadow: 0 3px 0 var(--ink); }
-  .tabs { display: flex; gap: 6px; justify-content: center; margin-bottom: 10px; }
-  .tab { white-space: nowrap; font-size: 15px; padding: 7px 16px; margin: 0; background: #fff; color: var(--ink); box-shadow: 0 3px 0 var(--ink); }
-  .tab.on { background: var(--ink); color: #fff; }
-  .lbstatus { text-align: center; font-size: 14px; font-weight: bold; opacity: .75; min-height: 1.3em; margin-bottom: 6px; }
-  .lblist { list-style: none; padding: 0; margin: 0 0 12px; max-height: 46vh; overflow-y: auto; border: 3px solid var(--ink); border-radius: 12px; background: #fff; }
-  .lblist li { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-bottom: 1px solid #eadfcb; font-size: 16px; }
-  .lblist li:last-child { border-bottom: 0; }
-  .lblist li.you { background: #fff3c4; font-weight: 900; }
-  .lblist li.gap { justify-content: center; opacity: .5; padding: 2px; font-size: 12px; }
-  .lblist .rk { width: 2.2em; flex: none; font-weight: 900; text-align: right; }
-  .lblist .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .lblist .ht { font-weight: 900; flex: none; text-align: right; margin-right: 2px; }
-  .lblist button { font-size: 12px; padding: 4px 8px; margin: 0; background: #fff; color: var(--ink); box-shadow: 0 2px 0 var(--ink); border-width: 2px; border-radius: 8px; }
-  .lblist .medal { font-size: 18px; }
-  .profilebox { border: 3px solid var(--ink); border-radius: 12px; padding: 8px 12px; background: #fff; font-size: 14px; }
-  .profilebox summary { font-weight: 900; cursor: pointer; }
-  .profilebox label { display: block; font-weight: bold; margin: 10px 0 4px; }
-  .profilebox .row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
-  .profilebox input { flex: 1; font: inherit; font-size: 16px; padding: 7px 9px; border: 3px solid var(--ink); border-radius: 9px; min-width: 0; }
-  .profilebox code { flex: 1; font-size: 17px; font-weight: 900; letter-spacing: 1px; background: #f4ecdd; padding: 6px 8px; border-radius: 8px; user-select: all; -webkit-user-select: all; }
-  .profilebox .sync { margin-top: 12px; }
-  .profilebox .fine { font-size: 12px; opacity: .65; margin-top: 6px; }
-  .achgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-height: 60vh; overflow-y: auto; }
-  .achcard { border: 3px solid var(--ink); border-radius: 12px; padding: 8px 10px; background: #fff; }
-  .achcard .ic { font-size: 26px; }
-  .achcard .an { font-weight: 900; font-size: 15px; }
-  .achcard .ad { font-size: 12px; opacity: .8; }
-  .achcard.locked { background: #eee7da; opacity: .6; }
-  .achcard.item { cursor: pointer; }
-  .achcard.item.on { background: #fff3c4; box-shadow: 0 0 0 3px var(--accent) inset; }
-  .achcard.item.locked { cursor: default; }
-  .coins { font-weight: 900; font-size: 16px; color: #8a6400; min-height: 1.2em; margin-top: 2px; }
-  .wallet { text-align: center; font-size: 26px; font-weight: 900; margin: -4px 0 10px; }
-  .shoplist { display: flex; flex-direction: column; gap: 8px; max-height: 56vh; overflow-y: auto; margin-bottom: 8px; }
-  .uprow { display: flex; align-items: center; gap: 10px; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 10px; background: #fff; }
-  .uprow .ic { font-size: 30px; }
-  .uprow .info { flex: 1; min-width: 0; }
-  .uprow .nm { font-weight: 900; font-size: 16px; }
-  .uprow .ds { font-size: 12px; opacity: .8; }
-  .pips { display: flex; gap: 4px; margin-top: 4px; }
-  .pips i { width: 16px; height: 8px; border-radius: 4px; background: #e3d9c6; border: 2px solid var(--ink); }
-  .pips i.on { background: var(--accent); }
-  .uprow button { font-size: 14px; padding: 7px 10px; margin: 0; white-space: nowrap; box-shadow: 0 3px 0 var(--ink); }
-  .uprow button:disabled { background: #cfc6b4; cursor: default; }
-  .preview { display: block; width: 100%; height: 190px; border: 3px solid var(--ink); border-radius: 12px; margin-bottom: 10px; background: #7cc8ff; }
-  #lockerTabs { flex-wrap: wrap; }
-  .achcard.locked .ic { filter: grayscale(1); }
-  .touchpads { display: flex; gap: 10px; justify-content: center; margin: 0 auto 12px; max-width: 360px; }
-  .touchpads div { flex: 1; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 6px; font-weight: 900; font-size: 15px; line-height: 1.25; }
-  .touchpads .l { background: #dbe8ff; color: var(--left); }
-  .touchpads .r { background: #ffe9d4; color: #d86a00; }
-  @media (max-width: 480px), (max-height: 560px) {
-    .card { padding: 18px 16px; box-shadow: 6px 6px 0 var(--ink); margin: auto; }
-    .sub { font-size: 17px; margin: 10px 0 12px; }
-    .controls { font-size: 15px; gap: 6px 10px; }
-    .key { min-width: 36px; height: 34px; font-size: 17px; }
-    .tips { font-size: 13px; margin-bottom: 12px; }
-    button { font-size: 20px; padding: 10px 26px; }
-    .stat .val { font-size: 28px; }
-    .quip { font-size: 18px; margin: 10px 0 14px; }
-  }
-
-  #friends { z-index: 20; }
-  #friends .card { max-width: 640px; }
-  #friends [hidden] { display: none !important; }
-  #friends h3 { margin: 14px 0 6px; font-size: 27px; }
-  #friends input, #friends select { width: 100%; padding: 12px; border: 2px solid var(--ink); border-radius: 8px; font: inherit; background: white; min-width: 0; }
-  #friends label { display: block; font-size: 14px; font-weight: bold; margin-top: 14px; }
-  #friends button { letter-spacing: 0; min-height: 40px; }
-  #friends button:focus-visible, #friends input:focus-visible, #friends select:focus-visible { outline: 3px solid #2f7bff; outline-offset: 3px; }
-  #friendStatus { font-size: 15px; min-height: 24px; margin: 12px 0; }
-  .friend-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
-  .friend-rules, .friend-note { font-size: 14px; line-height: 1.5; }
-  .friend-board { max-height: none; }
-  .friend-board li { flex-wrap: wrap; }
-  .friend-board .nm { white-space: normal; min-width: 90px; }
-  .friend-item { border-top: 2px solid var(--ink); padding: 15px 0; }
-  .friend-item p { font-size: 14px; margin: 8px 0; }
-  .friend-winner { font-size: 20px; font-weight: bold; background: #ffd23f; padding: 12px; border-radius: 8px; }
-  .friend-invite { margin: 18px 0; padding: 16px; border: 3px solid var(--ink); border-radius: 12px; background: #fff; }
-  .friend-invite summary { font-weight: bold; cursor: pointer; }
-  .friend-qr { display: block; width: 220px; max-width: 100%; height: auto; margin: 14px auto; }
-  .friend-invite a { color: #194da8; font-weight: bold; padding: 10px 0; display: inline-block; }
-  .friend-invite p { font-size: 14px; line-height: 1.5; }
-  #friends[aria-busy="true"] button:not(.close) { opacity: .6; pointer-events: none; }
-  @media (max-width: 480px) { #friends .card { padding: 22px 16px; } }
+  @media (prefers-reduced-motion:reduce) { *,*::before,*::after { transition:none !important; scroll-behavior:auto !important; } }
 
 </style>
 </head>
@@ -198,54 +209,56 @@
 
 <div id="menu" class="overlay">
   <div class="card">
+    <header class="lobby-top">
+      <div class="wordmark"><span class="brand-mark" aria-hidden="true">Ⅱ</span> RAISING THE BAR</div>
+      <span class="edition">NIGHT ARENA / 01</span>
+    </header>
     <div id="challenge" class="challenge" style="display:none">
-      <div class="ctitle">🏁 CHALLENGE RECEIVED</div>
-      <div id="cText"></div>
-      <button id="raceBtn">Race their ghost</button>
-      <button id="watchBtn" class="secondary">Watch it</button>
+      <div class="ctitle">GHOST CHALLENGE RECEIVED</div><div id="cText"></div>
+      <button id="raceBtn">Race their ghost</button><button id="watchBtn" class="secondary">Watch it</button>
     </div>
-    <h1>Raising<br>the <span class="up">Bar</span><span class="bar"></span></h1>
-    <div class="sub">How high can you go?</div>
-    <div class="controls kb-only">
-      <span class="key l">S</span><span><b>Left</b> arm</span>
-      <span class="key r">K</span><span><b>Right</b> arm</span>
-      <span><span class="key l">S</span> + <span class="key r">K</span></span><span><b>Full Pull-Up</b> (costs lots of stamina)</span>
+    <div class="lobby-grid">
+      <section class="lobby-intro" aria-labelledby="gameTitle">
+        <div class="eyebrow">TWO HANDS. NO LIMIT.</div>
+        <h1 id="gameTitle">Raising<br>the <span class="up">Bar.</span></h1>
+        <p class="sub">Pull. Release. Catch.<br>Find your rhythm and climb above the city.</p>
+        <div class="record"><span>Your endless best</span><strong id="menuBest">0.0m</strong></div>
+        <details class="howto">
+          <summary>How to climb</summary>
+          <div class="controls kb-only">
+            <span class="key l">S</span><span>Hold to pull with your <b>left arm</b></span>
+            <span class="key r">K</span><span>Hold to pull with your <b>right arm</b></span>
+            <span><span class="key l">S</span> + <span class="key r">K</span></span><span>Pull with <b>both arms</b></span>
+          </div>
+          <div class="touchpads touch-only"><div class="l">Hold left half<br>Left arm</div><div class="r">Hold right half<br>Right arm</div></div>
+          <p class="tips"><b>Hold both sides to pull up.</b> Release while rising, when your arms glow, to reach the next bar. Your hands catch automatically. Hang still to recover stamina.</p>
+        </details>
+        <div class="hint kb-only">Enter to climb · Esc to pause · M for sound</div>
+        <div class="hint touch-only">Both thumbs to pull · Release to hop · Tap pause to rest</div>
+      </section>
+      <section class="lobby-modes" aria-label="Choose your ladder">
+        <div class="mode-heading">Choose your ladder <span>01 / 02 / 03</span></div>
+        <button id="startBtn" class="mode-card primary"><span class="mode-kicker">01 / FREE CLIMB</span><span class="mode-name">Climb endless</span><span class="mode-note">A fresh ladder. Your upgrades. Your next personal best.</span></button>
+        <button id="dailyBtn" class="mode-card daily" aria-describedby="dailyInfo"><span class="mode-kicker">02 / DAILY COMPETITION</span><span class="mode-name" id="dailyLabel">Daily Ladder</span><span class="mode-note">One ladder for everyone. A new challenge every day.</span></button>
+        <div id="dailyInfo" class="dailyinfo"></div>
+        <section class="weeklycard" aria-labelledby="weeklyTitle">
+          <div class="eyebrow">03 / THIS WEEK'S EVENT</div>
+          <h2 id="weeklyTitle">Weekly Ladder</h2><p id="weeklyRules"></p>
+          <button id="weeklyBtn" class="weekly">Play weekly event</button>
+          <p id="weeklyInfo"></p><div id="weeklyReset" class="reset"></div>
+        </section>
+      </section>
     </div>
-    <div class="touchpads touch-only">
-      <div class="l">HOLD LEFT HALF<br>= S (left arm)</div>
-      <div class="r">HOLD RIGHT HALF<br>= K (right arm)</div>
-    </div>
-    <div class="touch-only" style="font-weight:bold;margin-bottom:8px">Both thumbs = Full Pull-Up</div>
-    <div class="tips">
-      <b>Hold</b> a side to pull with that arm. <b>Release</b> it at the top to let go and reach up.<br>
-      Hands grab any bar they touch. Rest to recover stamina &mdash; but not forever.<br>
-      Two keys. One ladder. How hard could it be?
-    </div>
-    <button id="startBtn">Start</button>
-    <button id="dailyBtn" class="daily">Daily Ladder</button>
-    <div id="dailyInfo" class="dailyinfo"></div>
-    <section class="weeklycard" aria-labelledby="weeklyTitle">
-      <div class="eyebrow">THIS WEEK'S EVENT</div>
-      <h2 id="weeklyTitle">Weekly Ladder</h2>
-      <p id="weeklyRules"></p>
-      <button id="weeklyBtn" class="weekly">Play weekly event</button>
-      <p id="weeklyInfo"></p>
-      <div id="weeklyReset" class="reset"></div>
-    </section>
-    <div class="menurow">
-      <button id="friendsBtn" class="secondary small">🤝 Challenge friends</button>
-      <button id="lbBtn" class="secondary small">🏆 Leaderboards</button>
-      <button id="achBtn" class="secondary small">🏅 Achievements <span id="achCount"></span></button>
-      <button id="lockerBtn" class="secondary small">👕 Locker</button>
-      <button id="shopBtn" class="secondary small">🛒 Upgrades <span id="coinCount"></span></button>
-    </div>
-    <div id="profileLine" class="profile"></div>
-    <button id="bloodBtn" class="secondary toggle"></button>
-    <div class="hint kb-only">Enter / Space to start &middot; D for the daily &middot; W for the weekly &middot; M to mute &middot; B for blood &middot; Esc to pause &middot; touch works too</div>
-    <div class="hint touch-only">Tip: play in landscape or portrait &middot; ❚❚ button to pause</div>
+    <nav class="menurow" aria-label="Your climbing hub">
+      <button id="friendsBtn" class="secondary small">Challenge friends</button>
+      <button id="lbBtn" class="secondary small">Leaderboards</button>
+      <button id="achBtn" class="secondary small">Achievements <span id="achCount"></span></button>
+      <button id="lockerBtn" class="secondary small">Locker</button>
+      <button id="shopBtn" class="secondary small">Upgrades <span id="coinCount"></span></button>
+    </nav>
+    <footer class="lobby-bottom"><div id="profileLine" class="profile" role="status"></div><div class="settings"><button id="soundBtn" class="secondary toggle">Sound: On</button><button id="bloodBtn" class="secondary toggle"></button></div></footer>
   </div>
 </div>
-
 
 <div id="friends" class="overlay panel hidden" role="dialog" aria-modal="true" aria-labelledby="friendsTitle">
   <div class="card wide">
@@ -289,10 +302,10 @@
   </div>
 </div>
 
-<div id="lb" class="overlay panel hidden">
+<div id="lb" class="overlay panel hidden" role="dialog" aria-modal="true" aria-labelledby="lbTitle">
   <div class="card wide">
     <button class="close" data-close aria-label="Close">✕</button>
-    <h2>🏆 Leaderboards</h2>
+    <h2 id="lbTitle">Leaderboards</h2>
     <div class="tabs"><button id="lbDaily" class="tab on">Today</button><button id="lbWeekly" class="tab">This week</button><button id="lbAll" class="tab">All-time</button></div>
     <div id="lbStatus" class="lbstatus"></div>
     <ol id="lbList" class="lblist"></ol>
@@ -309,20 +322,20 @@
   </div>
 </div>
 
-<div id="shop" class="overlay panel hidden">
+<div id="shop" class="overlay panel hidden" role="dialog" aria-modal="true" aria-labelledby="shopTitle">
   <div class="card wide">
     <button class="close" data-close aria-label="Close">✕</button>
-    <h2>🛒 Upgrades</h2>
+    <h2 id="shopTitle">Upgrades</h2>
     <div class="wallet"><span id="shopCoins">0</span> 🪙 Chalk</div>
     <div id="shopList" class="shoplist"></div>
     <div class="lbstatus">Earn Chalk on every run: 10 per metre climbed and 2 per bar. Daily and Weekly Ladders are always played without upgrades, so they stay pure skill contests.</div>
   </div>
 </div>
 
-<div id="locker" class="overlay panel hidden">
+<div id="locker" class="overlay panel hidden" role="dialog" aria-modal="true" aria-labelledby="lockerTitle">
   <div class="card wide">
     <button class="close" data-close aria-label="Close">✕</button>
-    <h2>👕 Locker</h2>
+    <h2 id="lockerTitle">Locker</h2>
     <canvas id="lockerPreview" class="preview"></canvas>
     <div class="tabs" id="lockerTabs"></div>
     <div id="lockerGrid" class="achgrid"></div>
@@ -330,10 +343,10 @@
   </div>
 </div>
 
-<div id="ach" class="overlay panel hidden">
+<div id="ach" class="overlay panel hidden" role="dialog" aria-modal="true" aria-labelledby="achTitle">
   <div class="card wide">
     <button class="close" data-close aria-label="Close">✕</button>
-    <h2>🏅 Achievements</h2>
+    <h2 id="achTitle">Achievements</h2>
     <div id="achSummary" class="lbstatus"></div>
     <div id="achGrid" class="achgrid"></div>
   </div>
@@ -1128,6 +1141,18 @@ if (typeof document !== 'undefined') (function boot() {
 
   // ---------- audio ----------
   let ac = null, master = null, muted = false, slowmo = 1; // slowmo < 1 drops pitch and stretches sounds for the fall replay
+  try { muted = localStorage.getItem('rtb_muted') === '1'; } catch (e) {}
+  function toggleSound() {
+    muted = !muted;
+    try { localStorage.setItem('rtb_muted', muted ? '1' : '0'); } catch (e) {}
+    refreshSound();
+  }
+  function refreshSound() {
+    $('soundBtn').textContent = 'Sound: ' + (muted ? 'Off' : 'On');
+    $('soundBtn').setAttribute('aria-pressed', String(!muted));
+  }
+  $('soundBtn').onclick = toggleSound;
+  refreshSound();
   function initAudio() {
     if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
     try {
@@ -1190,15 +1215,26 @@ if (typeof document !== 'undefined') (function boot() {
     return hit;
   }
   window.addEventListener('keydown', (e) => {
-    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) { if (e.key === 'Escape') closePanel(); return; }
     if (panel) {
+      if (e.key === 'Tab') {
+        const items = [...$(panel).querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),summary,a[href]')].filter(el => {
+          const closedDetails = el.closest('details:not([open])');
+          return el.getClientRects().length && (!closedDetails || el === closedDetails.querySelector('summary'));
+        });
+        const first = items[0], last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
       if (e.key === 'Escape') closePanel();
       return;
     }
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+    // Let focused buttons activate normally instead of treating Enter as an endless start.
+    if (e.target && e.target.tagName === 'BUTTON' && (e.key === 'Enter' || e.key === ' ')) return;
     if (setKey(e, true)) { initAudio(); return; }
     if (e.repeat) return;
     const k = e.key;
-    if (k === 'm' || k === 'M') { muted = !muted; flash(muted ? 'MUTED' : 'SOUND ON'); return; }
+    if (k === 'm' || k === 'M') { toggleSound(); flash(muted ? 'MUTED' : 'SOUND ON'); return; }
     if (k === 'b' || k === 'B') { setBlood(!blood); flash(blood ? 'BLOOD ON' : 'BLOOD OFF'); return; }
     if (mode === 'menu' && (k === 'Enter' || k === ' ')) { e.preventDefault(); if (challenge) raceReplay(challenge.rec, 'RIVAL'); else startEndless(); }
     else if (mode === 'menu' && (k === 'd' || k === 'D')) startDaily();
@@ -1229,7 +1265,7 @@ if (typeof document !== 'undefined') (function boot() {
     if (mode === 'fallcam') { if (fc.real > 0.4) endFallCam(); return; } // grace period so a panicked grab doesn't skip it
     if (mode !== 'play') return;
     if (paused) { paused = false; return; } // tap anywhere to resume
-    if (isTouch && inRect(e.clientX, e.clientY, pauseBtn())) { paused = true; releasePointers(); return; }
+    if (inRect(e.clientX, e.clientY, pauseBtn())) { paused = true; releasePointers(); return; }
     const side = e.clientX < W / 2 ? 'S' : 'K';
     pointers.set(e.pointerId, side);
     try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
@@ -1312,7 +1348,8 @@ if (typeof document !== 'undefined') (function boot() {
   function setBlood(on) {
     blood = on; if (!on) { splats = []; particles = particles.filter((p) => !p.blood); }
     try { localStorage.setItem('rtb_blood', on ? '1' : '0'); } catch (e) {}
-    $('bloodBtn').textContent = '🩸 Blood: ' + (on ? 'ON' : 'OFF');
+    $('bloodBtn').textContent = 'Blood: ' + (on ? 'On' : 'Off');
+    $('bloodBtn').setAttribute('aria-pressed', String(on));
   }
   setBlood(blood);
   $('bloodBtn').onclick = () => setBlood(!blood);
@@ -1382,7 +1419,8 @@ if (typeof document !== 'undefined') (function boot() {
     today = dayNumber(eventNow());
     refreshWeekly();
     daily = loadDaily();
-    $('dailyBtn').textContent = 'Daily Ladder #' + today;
+    $('dailyLabel').textContent = 'Daily Ladder #' + today;
+    $('menuBest').textContent = best.toFixed(1) + 'm';
     $('dailyInfo').textContent = (daily.best > 0 ? "Today's best: " + daily.best.toFixed(1) + 'm · race your ghost' : 'Same ladder for everyone today') + ' · no upgrades';
     if (challenge) {
       $('challenge').style.display = 'block'; $('menu').classList.add('has-challenge');
@@ -1660,13 +1698,16 @@ if (typeof document !== 'undefined') (function boot() {
   }
 
   // ---------- panels ----------
-  let panel = null, lbBoard = 'daily';
+  let panel = null, lbBoard = 'daily', panelFocus = null;
   function openPanel(id) {
+    if (!panel) panelFocus = document.activeElement;
     if (panel && panel !== id) $(panel).classList.add('hidden');
     panel = id; $(id).classList.remove('hidden');
+    $('menu').inert = true; $('over').inert = true;
+    $(id).querySelector('.close').focus();
     if (id === 'friends') { loadFriends(); $('friends').querySelector('.close').focus(); } else if (id === 'lb') loadBoard(); else if (id === 'locker') renderLocker(); else if (id === 'shop') renderShop(); else renderAchievements();
   }
-  function closePanel() { if (panel === 'friends') ++friendRequest; if (panel) $(panel).classList.add('hidden'); panel = null; refreshMenu(); }
+  function closePanel() { if (panel === 'friends') ++friendRequest; if (panel) $(panel).classList.add('hidden'); panel = null; $('menu').inert = false; $('over').inert = false; refreshMenu(); if (panelFocus && panelFocus.isConnected) panelFocus.focus(); }
   for (const el of document.querySelectorAll('[data-close]')) el.onclick = closePanel;
   for (const el of document.querySelectorAll('.panel')) el.addEventListener('pointerdown', (e) => { if (e.target === el) closePanel(); });
   $('lbBtn').onclick = () => openPanel('lb');
@@ -2570,9 +2611,9 @@ if (typeof document !== 'undefined') (function boot() {
   // ---------- rendering ----------
   // sky per zone: gym blue -> rooftop sunset -> pastel clouds -> space
   const SKY = [
-    [0, '#7cc8ff', '#dff3ff'], [14, '#6aa9ff', '#ffe8c2'], [30, '#ff9a6b', '#ffd98f'],
-    [42, '#f3a6d6', '#fff1f7'], [66, '#9a7fd1', '#f6c6e6'], [80, '#1b1446', '#4a3584'],
-    [95, '#070617', '#1a1340'],
+    [0, '#07121d', '#20384a'], [14, '#0c192a', '#34434b'], [30, '#211e37', '#704848'],
+    [42, '#222443', '#565c81'], [66, '#171b38', '#414764'], [80, '#080d22', '#262952'],
+    [95, '#030611', '#131b32'],
   ];
   function mixHex(a, b, t) {
     const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
@@ -2613,7 +2654,7 @@ if (typeof document !== 'undefined') (function boot() {
     const par = 0.35;
     const band0 = Math.floor((cam.y * par - 6) / 3), band1 = band0 + 6;
     if (hView > 66) drawPlanet(clamp((hView - 66) / 18, 0, 1));
-    ctx.fillStyle = hView > 82 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.7)';
+    ctx.fillStyle = hView > 82 ? 'rgba(255,255,255,0.06)' : 'rgba(122,162,191,0.10)';
     for (let b = band0; b <= band1; b++) {
       for (let k = 0; k < 2; k++) {
         const id = b * 2 + k;
@@ -2633,15 +2674,21 @@ if (typeof document !== 'undefined') (function boot() {
     if (viewBot < ZONE_H0 + 20) drawSkyline();
     if (viewTop > ZONE_H0 + 34 && viewBot < ZONE_H0 + 84) drawCloudLayer(viewBot, viewTop, false);
     // backboard
-    ctx.fillStyle = '#c98b52'; ctx.fillRect(-1.75, Math.max(0, viewBot), 3.5, viewTop - Math.max(0, viewBot));
-    ctx.strokeStyle = 'rgba(90,50,20,0.25)'; ctx.lineWidth = 0.02;
+    ctx.fillStyle = '#14212c'; ctx.fillRect(-1.75, Math.max(0, viewBot), 3.5, viewTop - Math.max(0, viewBot));
+    ctx.strokeStyle = 'rgba(122,164,185,0.12)'; ctx.lineWidth = 0.02;
     for (let x = -1.75 + 0.35; x < 1.75; x += 0.35) { ctx.beginPath(); ctx.moveTo(x, Math.max(0, viewBot)); ctx.lineTo(x, viewTop); ctx.stroke(); }
-    ctx.fillStyle = '#6e3f1d';
+    ctx.fillStyle = '#395264';
     ctx.fillRect(-1.85, Math.max(0, viewBot), 0.14, viewTop - Math.max(0, viewBot));
     ctx.fillRect(1.71, Math.max(0, viewBot), 0.14, viewTop - Math.max(0, viewBot));
+    ctx.fillStyle = '#c8ff3e';
+    for (const x of [-1.80, 1.77]) ctx.fillRect(x, Math.max(0, viewBot), 0.016, viewTop - Math.max(0, viewBot));
+    ctx.fillStyle = '#6c8596';
+    for (let y = Math.max(0, Math.floor(viewBot)); y < viewTop; y += 1) {
+      for (const x of [-1.78, 1.78]) { ctx.beginPath(); ctx.arc(x, y, 0.025, 0, Math.PI * 2); ctx.fill(); }
+    }
     // height ticks
     const h0 = g.headStartY || 2;
-    ctx.fillStyle = 'rgba(40,20,5,0.55)';
+    ctx.fillStyle = 'rgba(160,190,208,0.6)';
     for (let m = Math.max(0, Math.floor(viewBot - h0)); m <= viewTop - h0; m++) {
       const y = h0 + m;
       const w = m % 5 === 0 ? 0.22 : 0.1;
@@ -2656,9 +2703,9 @@ if (typeof document !== 'undefined') (function boot() {
     }
     // ground
     if (viewBot < 0.5) {
-      ctx.fillStyle = '#5a6475'; ctx.fillRect(-20, -5, 40, 5);
-      ctx.fillStyle = '#2f7bff'; ctx.fillRect(-2.2, -0.12, 4.4, 0.14);
-      ctx.fillStyle = '#1f5bd0'; ctx.fillRect(-2.2, -0.12, 4.4, 0.03);
+      ctx.fillStyle = '#0b131d'; ctx.fillRect(-20, -5, 40, 5);
+      ctx.fillStyle = '#64dfff'; ctx.fillRect(-2.2, -0.12, 4.4, 0.14);
+      ctx.fillStyle = '#567722'; ctx.fillRect(-2.2, -0.12, 4.4, 0.03);
     }
     // blood on the mat
     if (viewBot < 0.5) {
@@ -2679,12 +2726,12 @@ if (typeof document !== 'undefined') (function boot() {
         ctx.strokeStyle = '#6b6f80'; ctx.lineWidth = 0.02; ctx.setLineDash([0.035, 0.025]);
         for (const [ex, ax] of [[x0, b.x0], [x1, b.x1]]) { ctx.beginPath(); ctx.moveTo(ex, y); ctx.lineTo(ax, b.y + 0.42); ctx.stroke(); }
         ctx.setLineDash([]);
-        ctx.fillStyle = '#3b2412'; ctx.fillRect(b.x0 - 0.04, b.y + 0.4, 0.08, 0.05); ctx.fillRect(b.x1 - 0.04, b.y + 0.4, 0.08, 0.05);
+        ctx.fillStyle = '#627787'; ctx.fillRect(b.x0 - 0.04, b.y + 0.4, 0.08, 0.05); ctx.fillRect(b.x1 - 0.04, b.y + 0.4, 0.08, 0.05);
       } else {
-        ctx.fillStyle = '#3b2412';
+        ctx.fillStyle = '#627787';
         ctx.fillRect(b.x0 - 0.05, b.y - 0.07, 0.07, 0.14); ctx.fillRect(b.x1 - 0.02, b.y - 0.07, 0.07, 0.14);
       }
-      const main = t === 'butter' ? '#e8b817' : t === 'icy' ? '#7fd8ff' : t === 'wobbly' ? '#8a4b1f' : '#23263a';
+      const main = t === 'butter' ? '#e8b817' : t === 'icy' ? '#7fd8ff' : t === 'wobbly' ? '#ffb66b' : '#b7d0df';
       ctx.strokeStyle = main; ctx.lineWidth = 0.055;
       ctx.beginPath(); ctx.moveTo(x0, t === 'wobbly' ? y : b.y); ctx.quadraticCurveTo((x0 + x1) / 2, y * 2 - b.y, x1, t === 'wobbly' ? y : b.y); ctx.stroke();
       ctx.strokeStyle = b.hit > 0.05 ? 'rgba(255,240,160,' + (0.4 + b.hit * 0.6) + ')' : t === 'icy' ? 'rgba(255,255,255,0.9)' : 'rgba(200,210,230,0.55)'; ctx.lineWidth = 0.015;
@@ -2722,18 +2769,18 @@ if (typeof document !== 'undefined') (function boot() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     // tick labels
-    ctx.font = 'bold 12px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(40,20,5,0.8)';
+    ctx.font = 'bold 12px Segoe UI, Arial, sans-serif'; ctx.fillStyle = 'rgba(180,208,225,0.8)';
     for (let m = Math.max(0, Math.ceil((viewBot - h0) / 5) * 5); m <= viewTop - h0; m += 5) {
       const [X, Y] = toScreen(-1.4, h0 + m, sx, sy); ctx.fillText(m + 'm', X, Y);
     }
     if (mode !== 'menu') {
-      ctx.font = '900 12px Trebuchet MS, sans-serif'; ctx.textAlign = 'right';
+      ctx.font = '900 12px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'right';
       if (bestLine > 1) { const [X, Y] = toScreen(1.68, h0 + bestLine, sx, sy); ctx.fillStyle = '#c2185b'; ctx.fillText('BEST ' + bestLine.toFixed(1) + 'm', X, Y - 9); }
       if (gh && gh.max > 0.5 && Math.abs(gh.max - bestLine) > 0.05) { const [X, Y] = toScreen(1.68, h0 + gh.max, sx, sy); ctx.fillStyle = '#1565c0'; ctx.fillText(gh.name + ' ' + gh.max.toFixed(1) + 'm', X, Y - 9); }
       ctx.textAlign = 'center';
       if (gh && mode !== 'fallcam' && !(gh.g.state === 'dying' && gh.g.deathT > 2)) {
         const hp = gh.g.body.pts[HEAD]; const [X, Y] = toScreen(hp.x, hp.y + 0.3, sx, sy);
-        ctx.font = '900 13px Trebuchet MS, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.font = '900 13px Segoe UI, Arial, sans-serif'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.8)';
         ctx.strokeText('👻 ' + gh.name, X, Y); ctx.fillStyle = '#1565c0'; ctx.fillText('👻 ' + gh.name, X, Y);
       }
     }
@@ -2749,21 +2796,21 @@ if (typeof document !== 'undefined') (function boot() {
     if (bubble && mode !== 'menu') {
       const hp = g.body.pts[HEAD];
       const [X, Y] = toScreen(hp.x + 0.35, hp.y + 0.3, sx, sy);
-      ctx.font = '900 18px Trebuchet MS, sans-serif';
+      ctx.font = '900 18px Segoe UI, Arial, sans-serif';
       const w = ctx.measureText(bubble.t).width + 20;
-      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#1d1b2f'; ctx.lineWidth = 3;
+      ctx.fillStyle = '#111e27'; ctx.strokeStyle = '#405664'; ctx.lineWidth = 1;
       roundRect(X - w / 2, Y - 16, w, 32, 10); ctx.fill(); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(X - w / 2 + 10, Y + 14); ctx.lineTo(X - w / 2 - 4, Y + 26); ctx.lineTo(X - w / 2 + 22, Y + 14); ctx.fill();
-      ctx.fillStyle = '#1d1b2f'; ctx.fillText(bubble.t, X, Y + 1);
+      ctx.fillStyle = '#eef3f6'; ctx.fillText(bubble.t, X, Y + 1);
     }
     // tabletop: a controller deck below the hinge
     if (tabletop()) {
-      ctx.fillStyle = '#3a3850'; ctx.fillRect(0, Vh, W, Hh - Vh);
+      ctx.fillStyle = '#0a141c'; ctx.fillRect(0, Vh, W, Hh - Vh);
       ctx.fillStyle = '#1d1b2f'; ctx.fillRect(0, Vh, W, 6);
       if (mode === 'menu') {
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = 'rgba(255,255,255,0.75)';
-        ctx.font = '900 22px Trebuchet MS, sans-serif'; ctx.fillText('FLEX MODE', W / 2, (Vh + Hh) / 2 - 16);
-        ctx.font = 'bold 16px Trebuchet MS, sans-serif'; ctx.fillText('This half is your controller: left = S, right = K', W / 2, (Vh + Hh) / 2 + 14);
+        ctx.font = '900 22px Segoe UI, Arial, sans-serif'; ctx.fillText('FLEX MODE', W / 2, (Vh + Hh) / 2 - 16);
+        ctx.font = 'bold 16px Segoe UI, Arial, sans-serif'; ctx.fillText('This half is your controller: left = S, right = K', W / 2, (Vh + Hh) / 2 + 14);
       }
     }
     if (mode === 'play' || mode === 'over' || mode === 'replay') drawHUD();
@@ -2772,14 +2819,14 @@ if (typeof document !== 'undefined') (function boot() {
     drawZoneBanner(dt || 1 / 60);
     drawToasts(dt || 1 / 60);
     if (flashMsg) {
-      ctx.globalAlpha = clamp(flashMsg.life, 0, 1); ctx.font = '900 20px Trebuchet MS, sans-serif';
-      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.strokeText(flashMsg.t, W / 2, 90);
-      ctx.fillStyle = '#1d1b2f'; ctx.fillText(flashMsg.t, W / 2, 90); ctx.globalAlpha = 1;
+      ctx.globalAlpha = clamp(flashMsg.life, 0, 1); ctx.font = '900 20px Segoe UI, Arial, sans-serif';
+      ctx.lineWidth = 4; ctx.strokeStyle = '#080e14'; ctx.strokeText(flashMsg.t, W / 2, 90);
+      ctx.fillStyle = '#c8ff3e'; ctx.fillText(flashMsg.t, W / 2, 90); ctx.globalAlpha = 1;
     }
     if (mode === 'play' && paused) {
       ctx.fillStyle = 'rgba(29,27,47,0.5)'; ctx.fillRect(0, 0, W, Hh);
       ctx.fillStyle = '#fff'; ctx.font = '900 56px Impact, Arial Black, sans-serif'; ctx.fillText('PAUSED', W / 2, Vh / 2 - 10);
-      ctx.font = 'bold 18px Trebuchet MS, sans-serif'; ctx.fillText(isTouch ? 'Tap anywhere to resume' : 'Esc / Enter to resume', W / 2, Vh / 2 + 36);
+      ctx.font = 'bold 18px Segoe UI, Arial, sans-serif'; ctx.fillText(isTouch ? 'Tap anywhere to resume' : 'Esc / Enter to resume', W / 2, Vh / 2 + 36);
     }
   }
 
@@ -2791,13 +2838,13 @@ if (typeof document !== 'undefined') (function boot() {
     const k = Math.min(1, t.t / 0.25, (3.4 - t.t) / 0.25);
     const w = Math.min(380, W - 24), h = 58, x = W / 2 - w / 2, y = safe.t + 8 - (1 - k) * (h + 20);
     ctx.save(); ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#1d1b2f'; roundRect(x + 4, y + 4, w, h, 12); ctx.fill();
-    ctx.fillStyle = '#ffd23f'; roundRect(x, y, w, h, 12); ctx.fill();
+    ctx.fillStyle = '#080e14'; roundRect(x + 4, y + 4, w, h, 12); ctx.fill();
+    ctx.fillStyle = '#c8ff3e'; roundRect(x, y, w, h, 12); ctx.fill();
     ctx.strokeStyle = '#1d1b2f'; ctx.lineWidth = 3; ctx.stroke();
     ctx.font = '30px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#1d1b2f'; ctx.fillText(t.a.icon, x + 32, y + h / 2 + 1);
-    ctx.textAlign = 'left'; ctx.font = '900 11px Trebuchet MS, sans-serif'; ctx.fillText(t.head || 'ACHIEVEMENT UNLOCKED', x + 60, y + 17);
-    ctx.font = '900 19px Trebuchet MS, sans-serif'; ctx.fillText(t.a.name, x + 60, y + 36);
-    ctx.font = 'bold 11px Trebuchet MS, sans-serif'; ctx.globalAlpha = 0.75; ctx.fillText(t.a.desc, x + 60, y + 50);
+    ctx.textAlign = 'left'; ctx.font = '900 11px Segoe UI, Arial, sans-serif'; ctx.fillText(t.head || 'ACHIEVEMENT UNLOCKED', x + 60, y + 17);
+    ctx.font = '900 19px Segoe UI, Arial, sans-serif'; ctx.fillText(t.a.name, x + 60, y + 36);
+    ctx.font = 'bold 11px Segoe UI, Arial, sans-serif'; ctx.globalAlpha = 0.75; ctx.fillText(t.a.desc, x + 60, y + 50);
     ctx.restore();
   }
 
@@ -2811,11 +2858,11 @@ if (typeof document !== 'undefined') (function boot() {
     const y = Hh * 0.32, col = ['#fff', '#ff9a3c', '#f06bc4', '#8a7bff'][b.z];
     ctx.fillStyle = 'rgba(13,12,24,0.72)'; ctx.fillRect(0, y - 52, W, 104);
     ctx.fillStyle = col; ctx.fillRect(0, y - 52, W, 4); ctx.fillRect(0, y + 48, W, 4);
-    ctx.font = '900 14px Trebuchet MS, sans-serif'; ctx.fillStyle = col; ctx.fillText('ZONE ' + (b.z + 1) + ' · ' + z.from + 'm', W / 2, y - 30);
+    ctx.font = '900 14px Segoe UI, Arial, sans-serif'; ctx.fillStyle = col; ctx.fillText('ZONE ' + (b.z + 1) + ' · ' + z.from + 'm', W / 2, y - 30);
     const sc = 1 + 0.25 * Math.max(0, 1 - b.t / 0.25);
     ctx.font = '900 ' + Math.round(Math.min(46, W / 11) * sc) + 'px Impact, Arial Black, sans-serif'; ctx.fillStyle = '#fff';
     ctx.fillText(z.name.toUpperCase(), W / 2, y + 2);
-    ctx.font = 'bold 16px Trebuchet MS, sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillText(z.tip, W / 2, y + 32);
+    ctx.font = 'bold 16px Segoe UI, Arial, sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillText(z.tip, W / 2, y + 32);
     ctx.restore();
   }
   // wind: a flag + arrow under the top of the screen, and streaks blowing past
@@ -2824,7 +2871,7 @@ if (typeof document !== 'undefined') (function boot() {
     const x = W / 2, y = safe.t + (isTouch ? 70 : 24), dir = Math.sign(w), mag = Math.min(1, Math.abs(w) / 1.6);
     ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(29,27,47,0.6)'; roundRect(x - 62, y - 14, 124, 28, 14); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = '900 12px Trebuchet MS, sans-serif'; ctx.fillText('WIND', x - 32, y + 1);
+    ctx.fillStyle = '#fff'; ctx.font = '900 12px Segoe UI, Arial, sans-serif'; ctx.fillText('WIND', x - 32, y + 1);
     ctx.strokeStyle = mag > 0.65 ? '#ff9a3c' : '#9fe3ff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
     const len = 16 + 26 * mag, ax = x + 18;
     ctx.beginPath(); ctx.moveTo(ax - dir * len / 2, y); ctx.lineTo(ax + dir * len / 2, y);
@@ -2839,9 +2886,9 @@ if (typeof document !== 'undefined') (function boot() {
     for (let i = 0; i < 16; i++) {
       const side = i % 2 ? 1 : -1, k = Math.floor(i / 2);
       const x = side * (2.1 + k * 1.35 + hash(i * 7) * 0.4), w = 1.0 + hash(i * 13) * 0.6, top = ZONE_H0 + 10 + hash(i * 17) * 6.5;
-      ctx.fillStyle = mixHex('#a9bbd8', '#8497bd', hash(i * 3)); // hazy, so they read as far away
+      ctx.fillStyle = mixHex('#0a1520', '#182b3a', hash(i * 3)); // hazy, so they read as far away
       ctx.fillRect(x - w / 2, 0, w, top);
-      ctx.fillStyle = 'rgba(255,248,220,0.6)';
+      ctx.fillStyle = 'rgba(164,214,217,0.45)';
       for (let wy = 1.2; wy < top - 0.5; wy += 0.9) for (let wx = -w / 2 + 0.2; wx < w / 2 - 0.2; wx += 0.35)
         if (hash(i * 101 + wy * 7 + wx * 13) > 0.55) ctx.fillRect(x + wx, wy, 0.14, 0.22);
       if (i === 3) { // water tower
@@ -2853,7 +2900,7 @@ if (typeof document !== 'undefined') (function boot() {
   }
   function drawCloudLayer(viewBot, viewTop, front) {
     // the ladder passes through a sea of clouds between 40m and 80m
-    ctx.fillStyle = front ? 'rgba(255,255,255,0.32)' : 'rgba(255,255,255,0.85)';
+    ctx.fillStyle = front ? 'rgba(155,180,215,0.14)' : 'rgba(155,180,215,0.28)';
     for (let i = 0; i < 44; i++) {
       if (front !== (i % 4 === 0)) continue;
       const cy = ZONE_H0 + 36 + hash(i * 5) * 46; if (cy < viewBot - 2 || cy > viewTop + 2) continue;
@@ -2928,7 +2975,7 @@ if (typeof document !== 'undefined') (function boot() {
     const top = (P[LSH].y + P[RSH].y) / 2, bot = (P[LHIP].y + P[RHIP].y) / 2;
     if (it.rainbow) {
       const gr = ctx.createLinearGradient(0, top, 0, bot);
-      ['#ff3c3c', '#ff9a3c', '#ffd23f', '#3ce07a', '#2f7bff', '#9b5cff'].forEach((c, i) => gr.addColorStop(i / 5, c));
+      ['#ff3c3c', '#ff9a3c', '#ffd23f', '#3ce07a', '#64dfff', '#9b5cff'].forEach((c, i) => gr.addColorStop(i / 5, c));
       ctx.fillStyle = gr;
     } else ctx.fillStyle = it.color;
     ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 0.05; torsoPath(tq); ctx.stroke(); ctx.fill();
@@ -2950,7 +2997,7 @@ if (typeof document !== 'undefined') (function boot() {
     headFrame(hd, ux, uy, () => {
       ctx.lineJoin = 'round';
       if (id === 'cap') {
-        ctx.fillStyle = '#2f7bff'; ctx.beginPath(); ctx.arc(0, 0.03, 0.125, 0, Math.PI); ctx.fill();
+        ctx.fillStyle = '#64dfff'; ctx.beginPath(); ctx.arc(0, 0.03, 0.125, 0, Math.PI); ctx.fill();
         ctx.fillStyle = '#ffd23f'; for (let a = 0; a < 3; a++) { ctx.beginPath(); ctx.moveTo(0, 0.03); ctx.arc(0, 0.03, 0.125, a * Math.PI / 3 + 0.3, a * Math.PI / 3 + 0.65); ctx.fill(); }
         ctx.fillStyle = '#1d1b2f'; ctx.fillRect(-0.008, 0.15, 0.016, 0.06);
         const spin = Math.cos(performance.now() / 45);
@@ -3082,7 +3129,7 @@ if (typeof document !== 'undefined') (function boot() {
       }
       // wristband colour identifies the side
       const wb = { x: lerp(el.x, hp.x, 0.8), y: lerp(el.y, hp.y, 0.8) };
-      seg({ x: lerp(el.x, hp.x, 0.72), y: lerp(el.y, hp.y, 0.72) }, wb, 0.1, h.side ? '#ff8a1f' : '#2f7bff');
+      seg({ x: lerp(el.x, hp.x, 0.72), y: lerp(el.y, hp.y, 0.72) }, wb, 0.1, h.side ? '#ffb66b' : '#64dfff');
       // hand
       ctx.fillStyle = outline; ctx.beginPath(); ctx.arc(hp.x, hp.y, 0.062, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(hp.x, hp.y, 0.045, 0, Math.PI * 2); ctx.fill();
@@ -3116,8 +3163,8 @@ if (typeof document !== 'undefined') (function boot() {
         const hp = P[h.idx];
         ctx.save(); ctx.translate(hp.x + (h.side ? 0.1 : -0.1), hp.y + 0.12); ctx.scale(1, -1);
         ctx.globalAlpha = h.key ? 1 : 0.55;
-        ctx.fillStyle = h.side ? '#ff8a1f' : '#2f7bff';
-        ctx.font = '900 0.14px Trebuchet MS, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = h.side ? '#ffb66b' : '#64dfff';
+        ctx.font = '900 0.14px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(h.side ? 'K' : 'S', 0, 0);
         ctx.restore();
       }
@@ -3134,114 +3181,93 @@ if (typeof document !== 'undefined') (function boot() {
     const kh = big ? clamp(Hh - Vh - pb - 110, 64, 160) : isTouch ? 64 : 52;
     const mid = W - pl - pr - 2 * kw - 32;
     const narrow = mid < 220;
-    return { kw, kh, mid, narrow, bottom: pb + kh + (narrow ? 60 : 8), top: pad + safe.t + 84 };
+    return { kw, kh, mid, narrow, bottom: pb + kh + (narrow ? 60 : 8), top: pad + safe.t + 160 };
   }
 
   function drawHUD() {
-    // small HUD text flips to light once the sky gets dark (space)
-    const night = cam.y - (g.headStartY || 2) > 72;
-    const ink = (a) => (night ? 'rgba(255,255,255,' + Math.min(1, a + 0.1) + ')' : 'rgba(29,27,47,' + a + ')');
     const pad = 18, pl = pad + safe.l, pr = pad + safe.r, pt = pad + safe.t, pb = pad + safe.b;
-    // touch zones: tint the half being held
-    if (isTouch && mode === 'play') {
-      for (const h of g.hands) {
-        if (!h.key) continue;
-        ctx.fillStyle = h.side ? 'rgba(255,138,31,0.10)' : 'rgba(47,123,255,0.10)';
-        ctx.fillRect(h.side ? W / 2 : 0, 0, W / 2, Hh);
-      }
-      ctx.fillStyle = 'rgba(29,27,47,0.12)'; ctx.fillRect(W / 2 - 1, Hh * 0.55, 2, Hh * 0.45);
-      const r = pauseBtn();
-      ctx.fillStyle = 'rgba(29,27,47,0.55)'; roundRect(r.x, r.y, r.w, r.h, 10); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.fillRect(r.x + 17, r.y + 11, 5, 18); ctx.fillRect(r.x + 26, r.y + 11, 5, 18);
-    }
-    ctx.textBaseline = 'alphabetic';
-    // height
-    ctx.textAlign = 'left';
-    ctx.font = '900 14px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.75);
-    ctx.fillText('HEIGHT', pl, pt + 12);
-    ctx.font = '900 44px Impact, Arial Black, sans-serif';
-    ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(g.height.toFixed(1) + 'm', pl, pt + 56);
-    ctx.fillStyle = '#1d1b2f'; ctx.fillText(g.height.toFixed(1) + 'm', pl, pt + 56);
-    ctx.font = 'bold 14px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.8);
-    ctx.fillText('MAX ' + g.maxHeight.toFixed(1) + 'm  ·  SCORE ' + score(g), pl, pt + 78);
-    // best
-    ctx.textAlign = 'right';
-    let bLbl = 'BEST', bVal = best;
-    if (mode === 'replay') { bLbl = 'YOUR BEST'; }
-    else if (g.weekly) { bLbl = "WEEKLY BEST"; bVal = weekly.best; }
+    const small = W < 520;
+    const panelW = Math.min(236, (W - pl - pr - 60) / 2);
+    const surface = (x, y, w, h, edge = '#304758') => {
+      ctx.fillStyle = 'rgba(8,17,25,0.90)'; ctx.strokeStyle = edge; ctx.lineWidth = 1;
+      roundRect(x, y, w, h, 8); ctx.fill(); ctx.stroke();
+    };
+    const label = (text, x, y, maxWidth, color = '#a9bdca', size = 12) => {
+      ctx.fillStyle = color; ctx.font = '700 ' + size + 'px Segoe UI, Arial, sans-serif';
+      ctx.fillText(text, x, y, maxWidth);
+    };
+    // Each number has its own solid surface so contrast stays constant in every zone.
+    ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    surface(pl, pt, panelW, 82);
+    label('HEIGHT', pl + 12, pt + 19, panelW - 24);
+    ctx.fillStyle = '#eef3f6'; ctx.font = '800 ' + (small ? 32 : 38) + 'px Segoe UI, Arial, sans-serif';
+    ctx.fillText(g.height.toFixed(1) + 'm', pl + 12, pt + 53, panelW - 24);
+    label('MAX ' + g.maxHeight.toFixed(1) + 'm', pl + 12, pt + 71, panelW - 24, '#c8ff3e');
+    let bLbl = 'PERSONAL BEST', bVal = best;
+    if (mode === 'replay') bLbl = 'YOUR BEST';
+    else if (g.weekly) { bLbl = 'WEEKLY BEST'; bVal = weekly.best; }
     else if (run && run.kind === 'daily') { bLbl = "TODAY'S BEST"; bVal = daily.best; }
-    else if (gh) { bLbl = gh.name; bVal = gh.max; }
+    else if (gh) { bLbl = gh.name.toUpperCase(); bVal = gh.max; }
     const ahead = mode !== 'replay' && g.maxHeight > bVal && bVal > 0;
     const bshow = mode === 'replay' ? bVal : Math.max(bVal, g.maxHeight);
-    ctx.font = '900 14px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.75);
-    ctx.fillText(bLbl, W - pr, pt + 12);
-    ctx.font = '900 34px Impact, Arial Black, sans-serif';
-    ctx.lineWidth = 6; ctx.strokeStyle = '#fff'; ctx.strokeText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
-    ctx.fillStyle = ahead ? '#e0357a' : '#1d1b2f'; ctx.fillText(bshow.toFixed(1) + 'm', W - pr, pt + 48);
-    ctx.font = 'bold 12px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.7);
-    const upLv = Object.values(g.up || {}).reduce((a, b) => a + b, 0);
-    const badge = mode === 'replay' ? '' : g.weekly ? g.weekly.name.toUpperCase() + ' · WEEKLY' : run && run.kind === 'daily' ? 'DAILY #' + run.day + ' · NO UPGRADES' : (run && run.kind === 'challenge' ? 'GHOST RACE' : '') + (upLv ? (run && run.kind === 'challenge' ? ' · ' : '') + '⚡' + upLv : '');
-    if (badge) ctx.fillText(badge, W - pr, pt + 68);
-    if (mode === 'replay') {
-      const t = '▶ REPLAY' + (watching && watching.name !== 'YOU' ? ' · ' + watching.name : '');
-      ctx.textAlign = 'center'; ctx.font = '900 20px Trebuchet MS, sans-serif';
-      const w = ctx.measureText(t).width + 28, x0 = W / 2 - w / 2, y0 = pt + (isTouch ? 44 : 0);
-      ctx.fillStyle = Math.floor(performance.now() / 500) % 2 ? '#ff3c3c' : '#d62828'; roundRect(x0, y0, w, 34, 8); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.fillText(t, W / 2, y0 + 24);
-      ctx.font = 'bold 13px Trebuchet MS, sans-serif'; ctx.fillStyle = ink(0.8);
-      ctx.fillText(isTouch ? 'Tap to skip' : 'Enter / Esc to skip', W / 2, y0 + 52);
+    const rx = W - pr - panelW;
+    surface(rx, pt, panelW, 82, ahead ? '#6f8534' : '#304758');
+    label(bLbl, rx + 12, pt + 19, panelW - 24);
+    ctx.fillStyle = ahead ? '#c8ff3e' : '#eef3f6'; ctx.font = '800 ' + (small ? 32 : 38) + 'px Segoe UI, Arial, sans-serif';
+    ctx.fillText(bshow.toFixed(1) + 'm', rx + 12, pt + 53, panelW - 24);
+    label('SCORE ' + score(g), rx + 12, pt + 71, panelW - 24);
+    // The pause target is identical for mouse, touch and foldable controllers.
+    if (mode === 'play') {
+      const r = pauseBtn(); surface(r.x, r.y, r.w, r.h);
+      ctx.fillStyle = '#c8ff3e'; ctx.fillRect(r.x + 17, r.y + 11, 4, 18); ctx.fillRect(r.x + 27, r.y + 11, 4, 18);
     }
-
-    // stamina bar
-    const s = clamp(g.stam / 100, 0, 1);
-    const L = hudLayout();
-    const narrow = L.narrow, kw = L.kw, kh = L.kh;
-    const bw = narrow ? Math.min(420, W - pl - pr) : Math.min(420, L.mid), bh = 20, bx = W / 2 - bw / 2, by = narrow ? Hh - pb - kh - 30 : Hh - pb - kh / 2 - 6;
     ctx.textAlign = 'center';
-    ctx.font = '900 13px Trebuchet MS, sans-serif'; ctx.fillStyle = tabletop() ? 'rgba(255,255,255,0.8)' : 'rgba(29,27,47,0.85)';
-    const status = s > 0.7 ? 'FRESH' : s > 0.45 ? 'WARMED UP' : s > 0.25 ? 'TIRED' : s > 0.05 ? 'COOKED' : 'EXHAUSTED';
-    ctx.fillText('STAMINA — ' + status, W / 2, by - 8);
-    const blink = s < 0.25 && Math.floor(performance.now() / 180) % 2 === 0;
-    ctx.fillStyle = '#1d1b2f'; roundRect(bx - 3, by - 3, bw + 6, bh + 6, 8); ctx.fill();
-    ctx.fillStyle = '#3a3850'; roundRect(bx, by, bw, bh, 6); ctx.fill();
-    const col = s > 0.5 ? mixHex('#ffd23f', '#3ce07a', (s - 0.5) * 2) : mixHex('#ff3c3c', '#ffd23f', s * 2);
-    if (s > 0.01) { ctx.fillStyle = blink ? '#fff' : col; roundRect(bx, by, Math.max(8, bw * s), bh, 6); ctx.fill(); }
-    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(bx + 4, by + 3, Math.max(0, bw * s - 8), 4);
-    for (let i = 1; i < 10; i++) { ctx.fillStyle = 'rgba(29,27,47,0.35)'; ctx.fillRect(bx + bw * i / 10 - 1, by, 2, bh); }
-
-    // key indicators (glow when releasing that key would launch the hand)
-    for (const h of g.hands) {
-      const left = h.side === 0;
-      const x = left ? pl : W - pr - kw, y = Hh - kh - pb;
-      const col2 = left ? '#2f7bff' : '#ff8a1f';
-      const tr = throwReady(g, h);
-      if (tr) {
-        ctx.fillStyle = tr === 2 ? 'rgba(255,236,60,' + (0.6 + 0.4 * Math.sin(performance.now() / 55)) + ')' : 'rgba(255,150,60,0.6)';
-        roundRect(x - 6, y - 6 + 3, kw + 12, kh + 12, 14); ctx.fill();
+    const upLv = Object.values(g.up || {}).reduce((a, b) => a + b, 0);
+    const badge = mode === 'replay' ? 'REPLAY' + (watching && watching.name !== 'YOU' ? ' · ' + watching.name : '')
+      : g.weekly ? g.weekly.name.toUpperCase() + ' · WEEKLY'
+      : run && run.kind === 'daily' ? 'DAILY #' + run.day + ' · NO UPGRADES'
+      : run && run.friendCode ? 'FRIEND CHALLENGE · NO UPGRADES'
+      : (run && run.kind === 'challenge' ? 'GHOST RACE' : 'ENDLESS') + (upLv ? ' · UPGRADES ' + upLv : '');
+    const badgeWidth = Math.min(W - pl - pr, 420);
+    surface(W / 2 - badgeWidth / 2, pt + 92, badgeWidth, 30);
+    label(badge, W / 2, pt + 112, badgeWidth - 20, '#c8ff3e');
+    if (mode === 'replay') label(isTouch ? 'Tap to skip' : 'Enter / Esc to skip', W / 2, pt + 143, W - pl - pr);
+    // Only the active lower half is tinted; the climber remains unobstructed.
+    if (isTouch && mode === 'play') {
+      for (const h of g.hands) if (h.key) {
+        ctx.fillStyle = h.side ? 'rgba(255,182,107,0.055)' : 'rgba(100,223,255,0.055)';
+        ctx.fillRect(h.side ? W / 2 : 0, Hh * .55, W / 2, Hh * .45);
       }
-      ctx.fillStyle = '#1d1b2f'; roundRect(x, y + (h.key ? 3 : 0), kw, kh, 10); ctx.fill();
-      ctx.fillStyle = h.key ? col2 : '#fff'; roundRect(x + 3, y + 3 + (h.key ? 3 : 0), kw - 6, kh - 6 - (h.key ? 0 : 4), 8); ctx.fill();
-      ctx.textAlign = 'center';
-      ctx.fillStyle = h.key ? '#fff' : col2; ctx.font = '900 20px Trebuchet MS, sans-serif';
-      ctx.fillText(isTouch ? (left ? '◀ HOLD' : 'HOLD ▶') : (left ? 'S ← LEFT' : 'RIGHT → K'), x + kw / 2, y + (isTouch ? 32 : 26) + (h.key ? 3 : 0));
-      const st = g.weekly && g.weekly.id === 'one-hand' && !left ? 'LEFT HAND ONLY' : h.grip ? (h.key ? 'PULLING' : 'HANGING') : (h.key || h.reachT > 0 ? 'REACHING' : 'FREE');
-      ctx.font = 'bold 11px Trebuchet MS, sans-serif'; ctx.fillStyle = h.key ? '#fff' : 'rgba(29,27,47,0.7)';
-      ctx.fillText((isTouch ? (left ? 'LEFT ARM · ' : g.weekly && g.weekly.id === 'one-hand' ? '' : 'RIGHT ARM · ') : '') + st, x + kw / 2, y + (isTouch ? 52 : 42) + (h.key ? 3 : 0));
     }
-    // coaching: step-by-step prompts until you have climbed a few bars, then stamina hints
+    const s = clamp(g.stam / 100, 0, 1), L = hudLayout();
+    const { kw, kh, narrow } = L;
+    const bw = narrow ? Math.min(420, W - pl - pr) : Math.min(420, L.mid);
+    const bx = W / 2 - bw / 2, by = narrow ? Hh - pb - kh - 30 : Hh - pb - kh / 2 - 6, bh = 12;
+    surface(bx - 8, by - 28, bw + 16, bh + 36);
+    const status = s > .7 ? 'FRESH' : s > .45 ? 'WARMED UP' : s > .25 ? 'TIRED' : s > .05 ? 'COOKED' : 'EXHAUSTED';
+    label('STAMINA / ' + Math.round(s * 100) + '% / ' + status, W / 2, by - 9, bw, '#b6c7d2');
+    ctx.fillStyle = '#293c48'; roundRect(bx, by, bw, bh, 3); ctx.fill();
+    const col = s > .5 ? '#c8ff3e' : s > .25 ? '#ffb66b' : '#ff667d';
+    if (s > .01) { ctx.fillStyle = col; roundRect(bx, by, Math.max(4, bw * s), bh, 3); ctx.fill(); }
+    // Hand pads preserve release timing cues, including weekly one-hand restrictions.
+    for (const h of g.hands) {
+      const left = h.side === 0, x = left ? pl : W - pr - kw, y = Hh - kh - pb;
+      const color = left ? '#64dfff' : '#ffb66b', tr = throwReady(g, h);
+      surface(x, y, kw, kh, tr ? '#c8ff3e' : h.key ? color : '#304758');
+      if (h.key) { ctx.fillStyle = left ? 'rgba(100,223,255,.15)' : 'rgba(255,182,107,.15)'; roundRect(x + 1, y + 1, kw - 2, kh - 2, 7); ctx.fill(); }
+      ctx.fillStyle = tr === 2 ? '#c8ff3e' : color; ctx.fillRect(x + 12, y + 12, 3, kh - 24);
+      label(tr === 2 ? 'RELEASE' : isTouch ? (left ? 'LEFT / HOLD' : 'RIGHT / HOLD') : (left ? 'S / LEFT ARM' : 'K / RIGHT ARM'), x + kw / 2 + 3, y + (isTouch ? 28 : 23), kw - 30, tr === 2 ? '#c8ff3e' : color, small ? 14 : 16);
+      const st = g.weekly && g.weekly.id === 'one-hand' && !left ? 'LEFT HAND ONLY' : h.grip ? (h.key ? 'PULLING' : 'HANGING') : h.key || h.reachT > 0 ? 'REACHING' : 'FREE';
+      label(st, x + kw / 2 + 3, y + (isTouch ? 49 : 41), kw - 28, '#a9bdca');
+    }
     if (mode === 'play' && g.state === 'play' && !paused) {
       const c = coach();
       if (c) {
-        ctx.textAlign = 'center';
-        const size = c.big ? 28 : 17, ty = pt + (isTouch && W < 520 ? 150 : 110);
-        ctx.font = (c.big ? '900 ' : 'bold ') + size + 'px ' + (c.big ? 'Impact, Arial Black, sans-serif' : 'Trebuchet MS, sans-serif');
-        const mw = ctx.measureText(c.t).width;
-        if (mw > W - 24) ctx.font = (c.big ? '900 ' : 'bold ') + Math.max(10, Math.floor(size * (W - 24) / mw)) + 'px Trebuchet MS, sans-serif';
-        const sc = c.big ? 1 + 0.06 * Math.sin(performance.now() / 70) : 1;
-        ctx.save(); ctx.translate(W / 2, ty); ctx.scale(sc, sc);
-        ctx.lineWidth = c.big ? 6 : 4; ctx.strokeStyle = c.big ? '#1d1b2f' : 'rgba(255,255,255,0.9)'; ctx.strokeText(c.t, 0, 0);
-        ctx.fillStyle = c.color || '#1d1b2f'; ctx.fillText(c.t, 0, 0);
-        ctx.restore();
+        const ty = pt + 150, size = c.big ? 24 : 14;
+        ctx.font = '800 ' + size + 'px Segoe UI, Arial, sans-serif';
+        const width = Math.min(W - pl - pr, ctx.measureText(c.t).width + 28);
+        surface(W / 2 - width / 2, ty - 21, width, 34, c.big ? '#6f8534' : '#304758');
+        label(c.t, W / 2, ty + 1, width - 20, c.big ? '#c8ff3e' : '#eef3f6', size);
       }
     }
   }

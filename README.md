@@ -2,6 +2,14 @@
 
 A two-key, physics-driven salmon-ladder climbing game. **Two keys. One ladder. How hard could it be?**
 
+## Night Arena design
+
+The game now opens in a dark climbing lobby with electric-lime accents, a personal best readout, and separate endless, daily and weekly modes. The arena uses steel rails, illuminated edges and a night skyline. High-contrast score panels, hand pads and a stamina meter remain readable in every zone.
+
+Leaderboards, friend challenges, achievements, the Locker, upgrades and run results share the same theme. Sound and blood preferences are saved on the device. Dialogs support keyboard focus containment and restore focus on close. Phone, landscape and foldable layouts use the same self-contained game file as Android.
+
+This redesign preserves the shared simulation, replay versions, existing saves and server verification. Friend invite metadata follows the current page title rather than depending on the previous theme's exact title.
+
 ## Play
 
 Open `index.html` in any modern desktop browser. That's it: one self-contained file with no dependencies, no build step and no network access.
