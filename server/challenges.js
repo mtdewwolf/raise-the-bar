@@ -58,7 +58,7 @@ function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpErr
     return { code: c.code, kind: c.kind, day: c.day, seed: c.seed, version: c.version,
       title: c.kind === 'weekly' ? RTB.weeklyEvent(c.day).name : c.kind === 'daily' ? 'Daily Ladder #' + c.day : 'Friends Ladder',
       createdAt: c.created_at, expiresAt: c.expires_at, time: now(),
-      status: expired ? 'finished' : !compatible ? 'outdated' : 'active',
+      status: !compatible ? 'outdated' : expired ? 'finished' : 'active',
       joined: !!p && !!member.get(c.code, p.id), owner: !!p && c.creator_id === p.id,
       parentCode: c.parent_code, entries,
       rematches: db.prepare('SELECT code FROM challenges WHERE parent_code=? ORDER BY created_at DESC LIMIT 10').all(c.code).map(r => r.code) };
@@ -137,7 +137,7 @@ function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpErr
           }
         } else if (action === 'rematch') {
           limit('challengecreate:' + p.id, 30, 3600000);
-          const existing = db.prepare('SELECT * FROM challenges WHERE parent_code=? AND creator_id=? AND expires_at>? ORDER BY created_at DESC LIMIT 1').get(c.code, p.id, now());
+          const existing = db.prepare('SELECT * FROM challenges WHERE parent_code=? AND creator_id=? AND expires_at>? AND version=? ORDER BY created_at DESC LIMIT 1').get(c.code, p.id, now(), version(c.kind));
           if (existing) return snapshot(existing, p);
           const next = create(p, c.kind === 'endless' ? newRules('endless') : c, c.code);
           return snapshot(next, p);

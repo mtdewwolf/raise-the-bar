@@ -13,8 +13,8 @@ const now = () => clock;
 function playRun(seed, { kind = 'endless', day = 0, hops = 3, up = {} } = {}) {
   const g = RTB.newGame(seed, 'play', up); const changes = []; let last = 0, done = 0, t = 0;
   while (!(g.state === 'dying' && g.deathT > 1.5) && g.n < 120 * 120) {
-    // hop: pull ~0.5s, release, rest ~1.2s; after `hops` hops hang on until the grip gives out
-    const phase = t % 205, pulling = done < hops ? phase < 60 : true;
+    // hop: pull ~0.2s, release, rest 1.5s; after `hops` hops hang on until the grip gives out
+    const phase = t % 205, pulling = done < hops ? phase < 24 : true;
     if (done < hops && phase === 204) done++;
     const on = g.state === 'play';
     g.hands[0].key = g.hands[1].key = on && pulling;
@@ -153,11 +153,11 @@ test('looks are saved on the profile and shown with runs', () => withServer(asyn
 test('replays from older physics versions are rejected', () => withServer(async (call) => {
   const t = (await call('POST', '/api/player', {})).body.token;
   const code = playRun(5, { hops: 1 }).code;
-  const bytes = Buffer.from(code.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
-  bytes[0] = RTB.REPLAY_VERSION - 1; // pretend it was recorded before the zones update
-  const old = bytes.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const r = await call('POST', '/api/runs', { replay: old }, t);
-  assert.equal(r.status, 422); assert.match(r.body.error, /version/);
+  for (const version of [1, 2, 3, 4, 5]) {
+    const bytes = Buffer.from(code, 'base64url'); bytes[0] = version;
+    const r = await call('POST', '/api/runs', { replay: bytes.toString('base64url') }, t);
+    assert.equal(r.status, 422); assert.match(r.body.error, /version/);
+  }
 }));
 
 test('upgrades must be paid for with coins from verified runs', () => withServer(async (call) => {
