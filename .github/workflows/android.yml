@@ -20,7 +20,7 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew assembleDebug assembleRelease testDebugUnitTest lint
+      - run: ./gradlew assembleDebug assembleInternalTest testDebugUnitTest lintDebug lintInternalTest
         env:
           # optional: set a repository variable RTB_API to your leaderboard server's URL
           RTB_API: ${{ vars.RTB_API }}
@@ -29,4 +29,4 @@ jobs:
           name: raising-the-bar-apk
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
-            android/app/build/outputs/apk/release/app-release.apk
+            android/app/build/outputs/apk/internalTest/app-internalTest.apk

@@ -2,7 +2,7 @@
 
 Leaderboards, replay verification and cross-device profiles for the game. The web version and the Android app talk to the same server, so your scores and achievements follow you between them.
 
-- **No dependencies.** Plain Node 22.13+, using the built-in `node:http`, `node:sqlite` and `worker_threads`. Nothing to `npm install`.
+- **Node22.13+ plus the official Stripe SDK.** HTTP, SQLite and workers use Node built-ins. Run `npm ci` before starting. Payments remain disabled by default.
 - **Scores are verified, not trusted.** A player uploads their run's replay code, not a height. The server re-runs the replay through the game's own physics, which it loads from `../index.html`, and ranks the height it gets itself. Tampered, unfinished or impossible replays are rejected.
 - **It can host the game too.** `GET /` serves `index.html`, so the game, the API and challenge links all share one address.
 
@@ -10,6 +10,7 @@ Leaderboards, replay verification and cross-device profiles for the game. The we
 
 ```sh
 cd server
+npm ci
 npm start                 # http://localhost:8787, with the game at /
 npm test                  # API tests using real replays
 ```
@@ -52,7 +53,7 @@ If no server is configured, or it can't be reached, the game still works fully. 
 
 ## API
 
-All endpoints return JSON. Authenticated endpoints need `Authorization: Bearer <sync code>`.
+All endpoints return JSON. Authenticated endpoints need `Authorization: Bearer <sync code or account session>`. Account migration revokes the old sync code. See [accounts/payment API and blockers](PAYMENTS.md).
 
 | | |
 | --- | --- |
@@ -60,7 +61,7 @@ All endpoints return JSON. Authenticated endpoints need `Authorization: Bearer <
 | `POST /api/player` `{ name? }` | Creates an anonymous profile: `{ token, name, achievements }`. The token is also the **sync code** shown in the game |
 | `GET /api/me` 🔒 | Profile. This is also how "link another device" checks a sync code |
 | `PATCH /api/me` 🔒 `{ name?, look? }` | Rename (2–16 characters) and/or save the Locker look (`{ hat, jersey, band, back, suit }`) |
-| `PUT /api/me/achievements` 🔒 `{ ids }` | Merges achievements and returns the combined list |
+| `PUT /api/me/achievements` 🔒 `{ ids }` | Merges allowlisted legacy achievements, never paid inventory |
 | `PUT /api/me/upgrades` 🔒 `{ upgrades }` | Saves upgrade levels if the Chalk earned by verified runs covers them (409 if not yet) |
 | `POST /api/runs` 🔒 `{ replay }` | Verifies and ranks a run: `{ height, alltime: { rank, total, best, improved }, daily }` |
 | `GET /api/leaderboard?board=daily\|alltime&day=N&limit=50` | Top entries, plus your own row if you're outside them (send the token) |

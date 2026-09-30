@@ -1,11 +1,14 @@
 'use strict';
 // Raising the Bar leaderboard + achievements server.
-// Dependency-free: Node 22+ (node:http, node:sqlite, worker_threads). See server/README.md.
+// Node 22+ with official Stripe SDK; HTTP, SQLite and workers use built-ins.
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { openDb } = require('./db');
+const { accounts } = require('./accounts');
+const { payments } = require('./payments');
+const { LEGACY_ACHIEVEMENTS } = require('./catalog');
 const { VerifierPool } = require('./verifier');
 const { loadSim } = require('./sim');
 const { challengeRoutes } = require('./challenges');
@@ -50,15 +53,16 @@ function createApp(opts = {}) {
   const hits = new Map();
   function limit(key, max, windowMs) {
     const t = now(), h = hits.get(key);
-    if (!h || t - h.start > windowMs) { hits.set(key, { start: t, n: 1 }); return; }
+    if (!h || t - h.start > windowMs) { hits.set(key, { start: t, n: 1, windowMs }); return; }
     if (++h.n > max) throw new HttpError(429, 'Slow down a little');
   }
-  setInterval(() => { const t = now(); for (const [k, h] of hits) if (t - h.start > 120000) hits.delete(k); }, 60000).unref();
+  const rateCleanup = setInterval(() => { const t = now(); for (const [k, h] of hits) if (t - h.start > h.windowMs) hits.delete(k); }, 60000).unref();
 
+  let account, commerce;
   const today = () => RTB.dayNumber(now());
   function auth(req, required) {
     const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '');
-    const p = m ? q.playerByToken.get(hashToken(m[1])) : undefined;
+    const p = m ? (account?.resolve(m[1]) || q.playerByToken.get(hashToken(m[1]))) : undefined;
     if (!p && required) throw new HttpError(401, 'Unknown player. Create a profile or check your sync code');
     return p;
   }
@@ -78,19 +82,8 @@ function createApp(opts = {}) {
   // coins are only ever earned by verified runs, so the server can check any upgrade claim
   const earnedBy = (playerId) => q.earned.get(playerId).n;
   const levelSum = (up) => Object.values(RTB.cleanUpgrades(up)).reduce((a, b) => a + b, 0);
-  const profile = (p, token) => ({ name: p.name, achievements: achievementsOf(p), look: lookOf(p),
-    upgrades: upgradesOf(p), earned: earnedBy(p.id), ...(token ? { token } : {}) });
-  // cosmetic look: { slot: itemId } with short ids; the game decides what the ids mean
-  function cleanLook(raw) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-    const out = {};
-    for (const slot of ['hat', 'jersey', 'band', 'back', 'suit']) {
-      const v = raw[slot];
-      if (typeof v === 'string' && /^[a-z0-9_]{1,24}$/.test(v)) out[slot] = v;
-    }
-    return out;
-  }
-
+  const profile = (p, token) => ({ playerId:p.id, name:p.name, achievements:achievementsOf(p),
+    upgrades:upgradesOf(p), earned:earnedBy(p.id), account:account?.info(p.id) || null, ...commerce?.summary(p), ...(token ? {token} : {}) });
   async function readJson(req) {
     const chunks = []; let size = 0;
     for await (const c of req) { size += c.length; if (size > 64 * 1024) throw new HttpError(413, 'Request too large'); chunks.push(c); }
@@ -99,9 +92,13 @@ function createApp(opts = {}) {
   }
 
   const publicUrl = opts.publicUrl || process.env.RTB_PUBLIC_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? 'https://' + process.env.RAILWAY_PUBLIC_DOMAIN : null);
-  const friends = challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpError });
+  account = accounts({db,q,now,limit,HttpError,readJson,auth,profile});
+  commerce = payments({db,q,now,auth,account,profile,readJson,HttpError,limit,publicUrl,dbFile,options:opts.payments});
+  const friends = challengeRoutes({db,q,RTB,pool,now,auth,readJson,limit,HttpError,sanitizeLook:commerce.sanitizeLook});
   const routes = {
     ...friends.routes,
+    ...account.routes,
+    ...commerce.routes,
     'GET /api/health': () => ({ ok: true, day: today(), time: now(), challenges: true }),
     'GET /api/events/weekly': () => ({ ...RTB.weeklyEvent(RTB.weekDay(now())), time: now() }),
 
@@ -120,7 +117,7 @@ function createApp(opts = {}) {
       const p = auth(req, true), body = await readJson(req);
       if (body.name == null && body.look == null) throw new HttpError(400, 'Nothing to update');
       if (body.name != null) { const c = cleanName(body.name); if (c.error) throw new HttpError(400, c.error); q.renamePlayer.run(c.name, p.id); }
-      if (body.look != null) { const lk = cleanLook(body.look); if (!lk) throw new HttpError(400, 'Invalid look'); q.setLook.run(JSON.stringify(lk), p.id); }
+      if (body.look != null) { const lk = commerce.validateLook(p, body.look); q.setLook.run(JSON.stringify(lk), p.id); }
       return profile(q.playerById.get(p.id));
     },
     // Upgrade levels are bought on the device; the server stores them if the player's verified runs
@@ -135,7 +132,7 @@ function createApp(opts = {}) {
     // Achievements are unlocked on the device; the server keeps the union so every device sees them.
     'PUT /api/me/achievements': async (req) => {
       const p = auth(req, true), body = await readJson(req);
-      const ids = Array.isArray(body.ids) ? body.ids.filter((x) => typeof x === 'string' && /^[a-z0-9_]{1,32}$/.test(x)) : [];
+      const ids = Array.isArray(body.ids) ? body.ids.filter((x) => typeof x === 'string' && LEGACY_ACHIEVEMENTS.has(x)) : [];
       const merged = [...new Set([...achievementsOf(p), ...ids])].slice(0, 200).sort();
       q.setAchievements.run(JSON.stringify(merged), p.id);
       return { achievements: merged };
@@ -219,7 +216,11 @@ function createApp(opts = {}) {
   };
 
   async function handle(req, res) {
-    const url = new URL(req.url, 'http://x');
+    let url;
+    try { url = new URL(req.url, 'http://x'); } catch {
+      res.writeHead(400, {'Content-Type':'application/json','Cache-Control':'no-store'});
+      return res.end(JSON.stringify({error:'Invalid request URL'}));
+    }
     const ip = (trustProxy && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket.remoteAddress || '?';
     res.setHeader('Access-Control-Allow-Origin', allowOrigin);
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -236,7 +237,7 @@ function createApp(opts = {}) {
     if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
     const send = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
     try {
-      limit('ip:' + ip, 120, 60000);
+      if(url.pathname !== '/api/payments/stripe/webhook') limit('ip:' + ip, 120, 60000);
       const invite = /^\/challenge\/([A-Fa-f0-9]{12})(\/qr.svg)?$/.exec(url.pathname);
       if (serveGame && req.method === 'GET' && invite) {
         const challenge = friends.invite(invite[1]);
@@ -248,7 +249,7 @@ function createApp(opts = {}) {
       let fn = routes[req.method + ' ' + url.pathname] || friends.resolve(req.method, url.pathname), arg = null;
       const m = /^\/api\/runs\/(\d+)$/.exec(url.pathname);
       if (!fn && m && req.method === 'GET') {
-        fn = () => { const r = q.runById.get(Number(m[1])); if (!r) throw new HttpError(404, 'Run not found'); return { runId: r.id, name: r.name, height: r.height, replay: r.replay, look: lookOf(r) }; };
+        fn = () => { const r = q.runById.get(Number(m[1])); if (!r) throw new HttpError(404, 'Run not found'); return { runId: r.id, name: r.name, height: r.height, replay: r.replay, look:commerce.sanitizeLook({...r,id:r.player_id}) }; };
       }
       if (!fn) throw new HttpError(404, 'Not found');
       send(200, await fn(req, ip, url, arg));
@@ -259,7 +260,7 @@ function createApp(opts = {}) {
   }
 
   const server = http.createServer(handle);
-  server.closeAll = async () => { await new Promise((r) => server.close(r)); await pool.close(); db.close(); };
+  server.closeAll = async () => { clearInterval(rateCleanup); await new Promise((r) => server.close(r)); await pool.close(); db.close(); };
   return server;
 }
 

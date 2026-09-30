@@ -165,6 +165,28 @@
     .quip { font-size: 18px; margin: 10px 0 14px; }
   }
 
+  #account { z-index: 21; }
+  #account [hidden], #legacySync[hidden], #accountSyncNote[hidden] { display: none !important; }
+  #account .card { max-width: 620px; }
+  #account h3 { margin: 0 0 8px; font-size: 20px; }
+  #account p { font-size: 14px; line-height: 1.5; }
+  #account label { display: block; font-size: 14px; font-weight: bold; margin: 12px 0 4px; }
+  #account input:not([type="checkbox"]) { width: 100%; font: inherit; font-size: 16px; padding: 10px; border: 2px solid var(--ink); border-radius: 8px; background: #fff; }
+  #account input[type="checkbox"] { width: 20px; height: 20px; flex: none; margin: 0; }
+  #account .checkline { display: flex; align-items: flex-start; gap: 10px; line-height: 1.45; font-weight: normal; }
+  #account button { letter-spacing: 0; min-height: 42px; }
+  #account button:disabled { cursor: not-allowed; opacity: .65; }
+  #account button:focus-visible, #account input:focus-visible, #account summary:focus-visible,
+  .achcard.item:focus-visible { outline: 3px solid #2f7bff; outline-offset: 3px; }
+  .account-section { border: 3px solid var(--ink); border-radius: 12px; padding: 14px; margin: 12px 0; background: #fff; }
+  .account-section summary { cursor: pointer; font-weight: bold; }
+  .account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  #accountStatus { min-height: 1.5em; font-size: 14px; line-height: 1.5; }
+  #accountRecoveryCode { display: block; padding: 12px; background: #fff3c4; border-radius: 8px; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; font-size: 18px; }
+  .test-label { display: inline-block; font-size: 12px; font-weight: 900; border: 2px solid var(--ink); padding: 4px 8px; border-radius: 6px; background: #fff2b3; }
+  .supporter-swatch { display: inline-block; width: 46px; height: 14px; border: 2px solid var(--ink); border-radius: 6px; background: #a855f7; vertical-align: middle; }
+  .account-link { margin-top: 14px; text-align: center; }
+
   #friends { z-index: 20; }
   #friends .card { max-width: 640px; }
   #friends [hidden] { display: none !important; }
@@ -238,6 +260,7 @@
       <button id="achBtn" class="secondary small">🏅 Achievements <span id="achCount"></span></button>
       <button id="lockerBtn" class="secondary small">👕 Locker</button>
       <button id="shopBtn" class="secondary small">🛒 Upgrades <span id="coinCount"></span></button>
+      <button id="accountBtn" class="secondary small">Account &amp; test shop</button>
     </div>
     <div id="profileLine" class="profile"></div>
     <button id="bloodBtn" class="secondary toggle"></button>
@@ -299,12 +322,14 @@
     <details class="profilebox" id="profileBox">
       <summary>Your profile &amp; devices</summary>
       <label>Name <span class="row"><input id="nameInput" maxlength="16" autocomplete="off"><button id="nameSave" class="secondary small">Save</button></span></label>
-      <div class="sync">
+      <div class="sync" id="legacySync">
         <div><b>Play on another device?</b> Enter this sync code there to bring your profile, scores and achievements along.</div>
         <div class="row"><code id="syncCode">hidden</code><button id="syncShow" class="secondary small">Show</button></div>
         <div class="row"><input id="linkInput" placeholder="Enter a sync code" autocomplete="off" spellcheck="false"><button id="linkBtn" class="secondary small">Link</button></div>
         <div class="fine">Keep the code private: anyone with it can play as you.</div>
       </div>
+      <p id="accountSyncNote" hidden>Sign in to your account on another device. Your old sync code is no longer valid.</p>
+      <div class="account-link"><button id="profileAccountBtn" class="secondary small">Account &amp; test shop</button></div>
     </details>
   </div>
 </div>
@@ -327,6 +352,79 @@
     <div class="tabs" id="lockerTabs"></div>
     <div id="lockerGrid" class="achgrid"></div>
     <div class="lbstatus" id="lockerHint">Unlock more by earning achievements. Your look shows on your ghost too.</div>
+    <div class="account-link"><button id="lockerAccountBtn" class="secondary small">Account &amp; test shop</button></div>
+  </div>
+</div>
+
+<div id="account" class="overlay panel hidden" role="dialog" aria-modal="true" aria-labelledby="accountTitle" aria-describedby="accountStatus">
+  <div class="card wide">
+    <button class="close" data-close aria-label="Close account and test shop">✕</button>
+    <h2 id="accountTitle">Account &amp; test shop</h2>
+    <p id="accountStatus" role="status" aria-live="polite"></p>
+    <p id="accountSummary"></p>
+    <div id="accountSignedIn" hidden>
+      <div class="account-actions"><button id="accountRefresh" class="secondary small">Refresh purchases</button><button id="accountLogout" class="secondary small">Sign out</button></div>
+      <details class="account-section">
+        <summary>Replace a lost recovery code</summary>
+        <p>Enter your current password. This invalidates the old code and other sessions. Save and confirm the replacement code.</p>
+        <form id="accountRotateForm">
+          <label for="rotatePassword">Current password</label><input id="rotatePassword" name="password" type="password" autocomplete="current-password" maxlength="128" required>
+          <div class="account-actions"><button type="submit" class="small">Replace recovery code</button></div>
+        </form>
+      </details>
+    </div>
+    <div id="accountSignedOut">
+      <details class="account-section" id="accountRegisterBox">
+        <summary>Create account &amp; protect this profile</summary>
+        <p>Your scores, earned Chalk and achievement cosmetics stay with this profile. Choose a unique password. Save the recovery code: there is no email recovery.</p>
+        <form id="accountRegisterForm">
+          <label for="registerUsername">Username</label><input id="registerUsername" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="3" maxlength="32" pattern="[A-Za-z0-9_]+" required aria-describedby="usernameHelp">
+          <p id="usernameHelp">3–32 letters, numbers or underscores. This is separate from your leaderboard name.</p>
+          <label for="registerPassword">Password</label><input id="registerPassword" name="new-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required aria-describedby="passwordHelp">
+          <p id="passwordHelp">Use 12–128 characters. Keep your password private.</p>
+          <label class="checkline"><input id="accountConfirmLink" type="checkbox" required><span>Attach this device’s current profile to this account and permanently disable its old sync code. I have linked the correct profile first.</span></label>
+          <div class="account-actions"><button type="submit" class="small">Create account</button></div>
+        </form>
+      </details>
+      <details class="account-section" id="accountLoginBox">
+        <summary>Sign in to an existing account</summary>
+        <p>Sign in to restore that account’s profile and purchases on this device.</p>
+        <form id="accountLoginForm">
+          <label for="loginUsername">Username</label><input id="loginUsername" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required>
+          <label for="loginPassword">Password</label><input id="loginPassword" name="password" type="password" autocomplete="current-password" maxlength="128" required>
+          <div class="account-actions"><button type="submit" class="small">Sign in</button></div>
+        </form>
+      </details>
+      <details class="account-section">
+        <summary>Recover your account</summary>
+        <p>Use your saved recovery code to replace the password. This signs out other sessions and replaces your recovery code.</p>
+        <form id="accountRecoverForm">
+          <label for="recoverUsername">Username</label><input id="recoverUsername" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required>
+          <label for="recoverCode">Recovery code</label><input id="recoverCode" name="recovery-code" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="128" required>
+          <label for="recoverPassword">New password</label><input id="recoverPassword" name="new-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+          <div class="account-actions"><button type="submit" class="small">Reset password</button></div>
+        </form>
+      </details>
+    </div>
+    <section class="account-section" id="accountRecovery" hidden aria-labelledby="recoveryTitle">
+      <h3 id="recoveryTitle">Save your recovery code</h3>
+      <p id="recoveryOneTime" hidden>This code is shown only now and disappears when you close this panel. Store it somewhere safe. There is no email recovery.</p>
+      <code id="accountRecoveryCode" hidden></code>
+      <p>Before opening test checkout, confirm the recovery code you saved.</p>
+      <form id="accountConfirmRecoveryForm">
+        <label for="confirmRecoveryCode">Saved recovery code</label><input id="confirmRecoveryCode" name="recovery-code" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="128" required>
+        <div class="account-actions"><button type="submit" class="small">Confirm saved code</button></div>
+      </form>
+    </section>
+    <section class="account-section" aria-labelledby="testShopTitle">
+      <span class="test-label">TEST ONLY · NO REAL PURCHASES</span>
+      <h3 id="testShopTitle" style="margin-top:12px">Supporter pack <span class="supporter-swatch" aria-hidden="true"></span></h3>
+      <p>One permanent cosmetic: the purple Supporter headband. No Chalk, upgrades, score boost or competitive advantage. Existing earned cosmetics stay free to earn.</p>
+      <p id="testShopPrice">Provisional test price: $4.99 USD, one time. Not a live offer.</p>
+      <p id="testShopStatus" role="status" aria-live="polite">Checking test shop availability…</p>
+      <div class="account-actions"><button id="testCheckout" class="small" disabled>Open test checkout</button><button id="accountRestore" class="secondary small" disabled>Restore purchases</button><button id="supporterWear" class="secondary small" hidden>Wear headband</button></div>
+      <p>Test checkout uses Stripe’s sandbox. Use test payment details only. Returning from checkout never unlocks an item until the server verifies it.</p>
+    </section>
   </div>
 </div>
 
@@ -1409,7 +1507,35 @@ if (typeof document !== 'undefined') (function boot() {
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   };
   let apiBase = '', apiExplicit = false, online = 'off'; // 'off' | 'checking' | 'online' | 'offline'
-  let profile = store.get('rtb_profile', null);          // { token, name }
+  let profile = store.get('rtb_profile', null); // Legacy token, or an account marker without its session token.
+  try {
+    const session = JSON.parse(sessionStorage.getItem('rtb_account_session') || 'null');
+    if (session && session.account && session.token) profile = session;
+    if (profile && profile.account) store.set('rtb_profile', { name: profile.name, playerId: profile.playerId, account: profile.account });
+  } catch (e) {}
+  let paidInventory = new Set(); // Server responses only; never restored from local storage or a checkout URL.
+  const profileOwner = () => profile ? (profile.playerId ? 'player:' + profile.playerId : profile.account ? 'account:' + profile.account.username : 'legacy:' + profile.token) : 'device';
+  function persistProfile() {
+    if (profile && profile.account) {
+      store.set('rtb_profile', { name: profile.name, playerId: profile.playerId, account: profile.account });
+      try { if (profile.token) sessionStorage.setItem('rtb_account_session', JSON.stringify(profile)); else sessionStorage.removeItem('rtb_account_session'); } catch (e) {}
+    } else {
+      store.set('rtb_profile', profile);
+      try { sessionStorage.removeItem('rtb_account_session'); } catch (e) {}
+    }
+  }
+  function expireAccountSession() {
+    if (!profile || !profile.account) return;
+    delete profile.token; paidInventory.clear(); persistProfile();
+    if (look.band === 'supporter') { look.band = DEFAULT_LOOK.band; store.set('rtb_look', look); }
+    refreshProfileControls();
+    if (panel === 'account') { renderAccount(); accountMessage('Your session expired. Sign in again to restore purchases.'); }
+  }
+  function refreshProfileControls() {
+    $('legacySync').hidden = !!(profile && profile.account);
+    $('accountSyncNote').hidden = !(profile && profile.account);
+    $('syncCode').textContent = 'hidden';
+  }
   (function resolveApi() {
     let v = ''; try { v = localStorage.getItem('rtb_api') || ''; } catch (e) {}
     if (!v) { const m = document.querySelector('meta[name="rtb-api"]'); v = m ? m.content.trim() : ''; }
@@ -1419,11 +1545,20 @@ if (typeof document !== 'undefined') (function boot() {
   async function api(method, path, body, withAuth) {
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 12000);
     try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (withAuth && profile) headers.Authorization = 'Bearer ' + profile.token;
+      const accountRequest = path.startsWith('/api/account/') || (withAuth && profile && profile.account);
+      if (accountRequest) {
+        const endpoint = new URL(apiBase, location.href);
+        if (endpoint.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)) throw new Error('Accounts require an HTTPS game server.');
+      }
+      const headers = { 'Content-Type': 'application/json' }, sentToken = withAuth && profile && profile.token;
+      if (sentToken) headers.Authorization = 'Bearer ' + sentToken;
       const res = await fetch(apiBase + path, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: ctl.signal });
       let data = null; try { data = await res.json(); } catch (e) {}
-      if (!res.ok) { const err = new Error((data && data.error) || 'HTTP ' + res.status); err.status = res.status; throw err; }
+      if (!res.ok) {
+        // A wrong recovery code/password is not evidence that the bearer session expired.
+        if (res.status === 401 && withAuth && profile && profile.account && profile.token === sentToken && !path.startsWith('/api/account/')) expireAccountSession();
+        const err = new Error((data && data.error) || 'HTTP ' + res.status); err.status = res.status; throw err;
+      }
       return data;
     } finally { clearTimeout(timer); }
   }
@@ -1441,16 +1576,32 @@ if (typeof document !== 'undefined') (function boot() {
     catch (e) { online = apiExplicit ? 'offline' : 'off'; } // a guessed same-origin server that isn't there is just "no server"
     refreshMenu();
     if (!isOnline()) return;
-    if (profile) {
-      try { const me = await api('GET', '/api/me', null, true); adoptProfile(profile.token, me); }
-      catch (e) { if (e.status === 401) { profile = null; store.set('rtb_profile', null); } }
+    if (profile && profile.token) {
+      const token = profile.token;
+      try { const me = await api('GET', '/api/me', null, true); if (profile && profile.token === token) adoptProfile(token, me); }
+      catch (e) { if (e.status === 401 && profile && !profile.account && profile.token === token) { profile = null; persistProfile(); } }
     }
+    refreshProfileControls();
     flushRuns();
     flushFriendRuns();
   }
   function adoptProfile(token, me, linking) {
-    profile = { token, name: me.name }; store.set('rtb_profile', profile);
-    if (me.achievements) mergeAchievements(me.achievements);
+    const oldOwner = profileOwner(), previous = profile;
+    profile = { token, name: me.name, playerId: me.playerId, account: me.account || null }; persistProfile();
+    const samePlayer = !linking || (previous && previous.playerId && previous.playerId === me.playerId);
+    if (samePlayer && oldOwner !== profileOwner()) {
+      for (const entry of pending) if (entry.owner === oldOwner) entry.owner = profileOwner();
+      store.set('rtb_pending', pending);
+      for (const entry of friendPending) if (entry.owner === oldOwner || (previous && !previous.account && entry.owner === previous.token)) entry.owner = profileOwner();
+      store.set('rtb_friend_pending', friendPending);
+    }
+    paidInventory = new Set((Array.isArray(me.inventory) ? me.inventory : []).map(it => it.slot + ':' + it.id));
+    refreshProfileControls();
+    if (linking && !samePlayer) {
+      unlocked = new Set((me.achievements || []).filter(id => ACH_BY_ID[id])); store.set('rtb_ach', [...unlocked]);
+      stats = { runs: 0, falls: 0, mat: 0, streak: 0, lastDaily: 0 }; store.set('rtb_stats', stats);
+      look = cleanLook(me.look || DEFAULT_LOOK); store.set('rtb_look', look);
+    } else if (me.achievements) mergeAchievements(me.achievements);
     // looks: a linked device takes the profile's look; otherwise keep a look you've customised here
     const serverLook = me.look && Object.keys(me.look).length ? cleanLook(me.look) : null;
     const localCustom = JSON.stringify(look) !== JSON.stringify(DEFAULT_LOOK);
@@ -1467,10 +1618,13 @@ if (typeof document !== 'undefined') (function boot() {
       }
       store.set('rtb_wallet', wallet); syncUpgradesSoon();
     }
+    if (look.band === 'supporter' && !paidInventory.has('band:supporter')) { look.band = DEFAULT_LOOK.band; store.set('rtb_look', look); }
     refreshMenu();
+    if (panel === 'account') renderAccount();
   }
   let creatingProfile = null;
   async function ensureProfile() {
+    if (profile && profile.account && !profile.token) throw new Error('Sign in to your account to sync this profile.');
     if (profile) return profile;
     if (!creatingProfile) creatingProfile = (async () => {
       const me = await api('POST', '/api/player', {});
@@ -1481,9 +1635,9 @@ if (typeof document !== 'undefined') (function boot() {
   }
   // finished runs: queued so nothing is lost offline, uploaded oldest first
   // runs recorded with older physics can't be verified any more, so they're dropped from the queue
-  let pending = store.get('rtb_pending', []).filter((c) => { try { decodeReplay(c); return true; } catch (e) { return false; } }), flushing = null;
+  let pending = store.get('rtb_pending', []).map(c => typeof c === 'string' ? { replay: c, owner: profileOwner() } : c).filter(c => { try { decodeReplay(c.replay); return typeof c.owner === 'string'; } catch (e) { return false; } }), flushing = null;
   function queueRun(code) {
-    if (!pending.includes(code)) pending.push(code);
+    if (!pending.some(c => c.replay === code && c.owner === profileOwner())) pending.push({ replay: code, owner: profileOwner() });
     if (pending.length > 60) pending = pending.slice(-60);
     store.set('rtb_pending', pending);
   }
@@ -1493,14 +1647,16 @@ if (typeof document !== 'undefined') (function boot() {
       const results = {};
       try {
         await ensureProfile();
-        while (pending.length) {
-          const code = pending[0];
+        const owner = profileOwner();
+        while (profileOwner() === owner && pending.some(c => c.owner === owner)) {
+          const entry = pending.find(c => c.owner === owner), code = entry.replay;
           try { results[code] = await api('POST', '/api/runs', { replay: code }, true); }
           catch (e) {
-            if (!e.status || e.status === 429 || e.status >= 500) break; // try again later
+            if (!e.status || e.status === 401 || e.status === 429 || e.status >= 500) break; // try again later
             results[code] = { error: e.message };                          // rejected: drop it
           }
-          pending.shift(); store.set('rtb_pending', pending);
+          pending = pending.filter(c => c !== entry); store.set('rtb_pending', pending);
+          if (profileOwner() !== owner) break;
           const r = results[code];
           if (r && !r.error) {
             if (r.earned > wallet.earned) { wallet.earned = r.earned; store.set('rtb_wallet', wallet); }
@@ -1574,6 +1730,7 @@ if (typeof document !== 'undefined') (function boot() {
     { slot: 'band', id: 'white', name: 'Terry Cloth', icon: '🤍', color: '#f7f7f7', ach: 'on_empty' },
     { slot: 'band', id: 'ice', name: 'Frostbite', icon: '🧊', color: '#7fd8ff', ach: 'icy' },
     { slot: 'band', id: 'flame', name: 'On Fire', icon: '🔥', color: '#ff6a00', ach: 'clutch' },
+    { slot: 'band', id: 'supporter', name: 'Supporter', icon: '💜', color: '#a855f7', paid: 'supporter_pack' },
     { slot: 'back', id: 'none', name: 'Nothing', icon: '🙅' },
     { slot: 'back', id: 'cape', name: 'Hero Cape', icon: '🦸', ach: 'saved' },
     { slot: 'back', id: 'jetpack', name: 'Jetpack (for show)', icon: '🚀', ach: 'zone_roof' },
@@ -1587,7 +1744,8 @@ if (typeof document !== 'undefined') (function boot() {
   const itemOf = (slot, id) => ITEMS.find((it) => it.slot === slot && it.id === id) || ITEMS.find((it) => it.slot === slot && it.id === DEFAULT_LOOK[slot]);
   function cleanLook(l) { const out = {}; for (const [slot] of SLOTS) out[slot] = itemOf(slot, l && l[slot]).id; return out; }
   let look = cleanLook(store.get('rtb_look', DEFAULT_LOOK));
-  const itemUnlocked = (it) => !it.ach || unlocked.has(it.ach);
+  if (look.band === 'supporter') look.band = DEFAULT_LOOK.band; // Re-verify paid ownership on every launch.
+  const itemUnlocked = (it) => it.paid ? paidInventory.has(it.slot + ':' + it.id) : !it.ach || unlocked.has(it.ach);
   let unlocked = new Set(store.get('rtb_ach', []).filter((id) => ACH_BY_ID[id]));
   let stats = Object.assign({ runs: 0, falls: 0, mat: 0, streak: 0, lastDaily: 0 }, store.get('rtb_stats', {}));
   let toasts = [], achSyncTimer = null;
@@ -1609,7 +1767,8 @@ if (typeof document !== 'undefined') (function boot() {
     clearTimeout(achSyncTimer);
     achSyncTimer = setTimeout(() => {
       if (!isOnline() || !profile) return;
-      api('PUT', '/api/me/achievements', { ids: [...unlocked] }, true).then((r) => { for (const id of r.achievements) if (ACH_BY_ID[id]) unlocked.add(id); store.set('rtb_ach', [...unlocked]); }).catch(() => {});
+      const owner = profileOwner();
+      api('PUT', '/api/me/achievements', { ids: [...unlocked] }, true).then((r) => { if (profileOwner() !== owner) return; for (const id of r.achievements) if (ACH_BY_ID[id]) unlocked.add(id); store.set('rtb_ach', [...unlocked]); }).catch(() => {});
     }, 1500);
   }
   // per-run counters for achievements that need them
@@ -1650,13 +1809,26 @@ if (typeof document !== 'undefined') (function boot() {
   }
 
   // ---------- panels ----------
-  let panel = null, lbBoard = 'daily';
+  let panel = null, lbBoard = 'daily', panelReturnFocus = null;
   function openPanel(id) {
+    if (panel === 'account' && accountBusy) { accountMessage('Please wait for this account request to finish before leaving.'); return; }
+    for (const el of document.querySelectorAll('.overlay')) el.inert = id === 'account' && el.id !== 'account';
+    if (!panel) panelReturnFocus = document.activeElement;
+    if (panel === 'account' && id !== 'account') clearAccountSecrets();
     if (panel && panel !== id) $(panel).classList.add('hidden');
     panel = id; $(id).classList.remove('hidden');
-    if (id === 'friends') { loadFriends(); $('friends').querySelector('.close').focus(); } else if (id === 'lb') loadBoard(); else if (id === 'locker') renderLocker(); else if (id === 'shop') renderShop(); else renderAchievements();
+    if (id === 'account') { const loaded = loadAccount(); $('account').querySelector('.close').focus(); return loaded; } else if (id === 'friends') { loadFriends(); $('friends').querySelector('.close').focus(); } else if (id === 'lb') loadBoard(); else if (id === 'locker') renderLocker(); else if (id === 'shop') renderShop(); else renderAchievements();
   }
-  function closePanel() { if (panel === 'friends') ++friendRequest; if (panel) $(panel).classList.add('hidden'); panel = null; refreshMenu(); }
+  function closePanel() {
+    if (panel === 'account' && accountBusy) { accountMessage('Please wait for this account request to finish before closing.'); return; }
+    if (panel === 'friends') ++friendRequest;
+    if (panel === 'account') { ++accountRequest; clearAccountSecrets(); }
+    if (panel) $(panel).classList.add('hidden');
+    panel = null; refreshMenu();
+    for (const el of document.querySelectorAll('.overlay')) el.inert = false;
+    if (panelReturnFocus && panelReturnFocus.isConnected) panelReturnFocus.focus();
+    panelReturnFocus = null;
+  }
   for (const el of document.querySelectorAll('[data-close]')) el.onclick = closePanel;
   for (const el of document.querySelectorAll('.panel')) el.addEventListener('pointerdown', (e) => { if (e.target === el) closePanel(); });
   $('lbBtn').onclick = () => openPanel('lb');
@@ -1705,6 +1877,7 @@ if (typeof document !== 'undefined') (function boot() {
   // ---- locker ----
   let lockerSlot = 'hat', previewG = null, previewT = 0;
   function setLook(slot, id) {
+    if (!itemUnlocked(itemOf(slot, id))) return;
     look = cleanLook(Object.assign({}, look, { [slot]: id }));
     store.set('rtb_look', look);
     syncLookSoon();
@@ -1728,8 +1901,14 @@ if (typeof document !== 'undefined') (function boot() {
       d.className = 'achcard item' + (open ? '' : ' locked') + (on ? ' on' : '');
       d.innerHTML = '<div class="ic"></div><div class="an"></div><div class="ad"></div>';
       d.children[0].textContent = it.icon; d.children[1].textContent = it.name;
-      d.children[2].textContent = on ? 'Wearing' : open ? 'Tap to wear' : '🔒 ' + ACH_BY_ID[it.ach].name + ': ' + ACH_BY_ID[it.ach].desc;
-      if (open) d.onclick = () => setLook(it.slot, it.id);
+      d.children[2].textContent = on ? 'Wearing' : open ? 'Tap to wear' : it.paid ? '🔒 Account & test shop · cosmetic only' : '🔒 ' + ACH_BY_ID[it.ach].name + ': ' + ACH_BY_ID[it.ach].desc;
+      if (open || it.paid) {
+        d.tabIndex = 0; d.setAttribute('role', 'button');
+        d.setAttribute('aria-label', it.name + (open ? (on ? ', wearing' : ', wear') : ', open account and test shop'));
+        const choose = () => open ? setLook(it.slot, it.id) : openPanel('account');
+        d.onclick = choose;
+        d.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(); } };
+      }
       grid.appendChild(d);
     }
     const n = ITEMS.filter(itemUnlocked).length;
@@ -1775,6 +1954,7 @@ if (typeof document !== 'undefined') (function boot() {
     list.innerHTML = '';
     $('profileBox').style.display = isOnline() ? '' : 'none';
     if (profile) $('nameInput').value = profile.name;
+    refreshProfileControls();
     if (!isOnline()) {
       status.textContent = online === 'off' ? 'Leaderboards need the game server (see server/README.md). Your bests and achievements are still saved on this device.'
         : online === 'checking' ? 'Connecting…' : "Can't reach the leaderboard server right now. Your runs will upload when it's back.";
@@ -1820,12 +2000,14 @@ if (typeof document !== 'undefined') (function boot() {
     catch (e) { flash(e.message); }
   };
   $('syncShow').onclick = async () => {
-    try { await ensureProfile(); $('syncCode').textContent = profile.token; } catch (e) { flash(e.message); }
+    try { await ensureProfile(); if (profile.account) { openPanel('account'); return; } $('syncCode').textContent = profile.token; } catch (e) { flash(e.message); }
   };
   $('linkBtn').onclick = async () => {
     const code = $('linkInput').value.trim();
-    if (!code) return;
+    if (!code || (profile && profile.account)) return;
+    if (!/^[A-Za-z0-9-]{8,32}$/.test(code)) { flash('Use a legacy sync code, or sign in through Account.'); return; }
     try {
+      if (flushing) await flushing; if (friendSyncing) await friendSyncing;
       const prev = profile; profile = { token: code, name: '' };
       let me;
       try { me = await api('GET', '/api/me', null, true); } catch (e) { profile = prev; throw e; }
@@ -1843,6 +2025,179 @@ if (typeof document !== 'undefined') (function boot() {
       grid.appendChild(d);
     }
   }
+
+  // ---------- Account recovery and test-only cosmetic checkout ----------
+  // Purchase entitlement comes only from an authenticated server response.
+  let accountBusy = false, accountRequest = 0, shopCatalog = null;
+  function nativePurchasesUnavailable() {
+    return !!(window.Android || window.RTBAndroid || /RaisingTheBarAndroid/i.test(navigator.userAgent) ||
+      document.querySelector('meta[name="rtb-platform"][content="android" i]'));
+  }
+  function accountMessage(message) { $('accountStatus').textContent = message; }
+  function clearAccountFormSecrets() {
+    for (const id of ['registerPassword', 'loginPassword', 'recoverPassword', 'recoverCode', 'confirmRecoveryCode', 'rotatePassword']) $(id).value = '';
+    $('accountConfirmLink').checked = false;
+  }
+  function clearAccountSecrets() {
+    clearAccountFormSecrets(); $('accountRecoveryCode').textContent = '';
+    $('accountRecoveryCode').hidden = true; $('recoveryOneTime').hidden = true;
+  }
+  function showRecoveryCode(code) {
+    if (typeof code !== 'string' || !code) return;
+    $('accountRecoveryCode').textContent = code;
+    $('accountRecoveryCode').hidden = false; $('recoveryOneTime').hidden = false;
+  }
+  function testOfferReady(catalog) {
+    const item = catalog && Array.isArray(catalog.items) && catalog.items.find(it => it.sku === 'supporter_pack');
+    return !!(catalog && catalog.mode === 'test' && catalog.checkoutEnabled === true && item && item.amount === 499 && item.currency === 'usd');
+  }
+  function renderAccount() {
+    const signedIn = !!(profile && profile.account && profile.token), registered = !!(profile && profile.account);
+    const owned = paidInventory.has('band:supporter');
+    $('accountSummary').textContent = signedIn ? 'Signed in as ' + profile.account.username + ' · playing as ' + profile.name
+      : registered ? 'Sign in as ' + profile.account.username + ' to reconnect this profile.'
+      : profile ? 'Current profile: ' + profile.name + '. Protect it with an account before testing purchases.'
+      : 'Play free, or create an account to protect your profile and test cosmetic purchases.';
+    $('accountSignedIn').hidden = !signedIn; $('accountSignedOut').hidden = signedIn;
+    $('accountRegisterBox').hidden = registered;
+    $('accountLoginBox').open = registered && !signedIn;
+    $('accountRecovery').hidden = !signedIn || profile.account.recoveryConfirmed === true;
+    let status = 'Test checkout is disabled. No real-money checkout is available.';
+    if (nativePurchasesUnavailable()) status = 'Purchases are unavailable in the Android app. No web checkout is offered here. You can restore an existing account’s verified cosmetics.';
+    else if (owned) status = 'Owned on this account. Your Supporter headband is ready in the Locker.';
+    else if (!isOnline()) status = 'Connect to the game server to check purchase availability. Your free game still works offline.';
+    else if (!signedIn) status = 'Create an account or sign in before testing purchases.';
+    else if (!profile.account.recoveryConfirmed) status = 'Save and confirm your recovery code before testing purchases.';
+    else if (testOfferReady(shopCatalog)) status = 'Sandbox checkout is ready. Test transactions only; no real charge.';
+    $('testShopStatus').textContent = status;
+    $('testCheckout').hidden = nativePurchasesUnavailable();
+    $('testCheckout').disabled = accountBusy || nativePurchasesUnavailable() || !signedIn || !profile.account.recoveryConfirmed || !testOfferReady(shopCatalog) || owned;
+    $('accountRestore').disabled = accountBusy || !signedIn || !isOnline();
+    $('supporterWear').hidden = !owned; $('supporterWear').disabled = accountBusy;
+    $('accountRefresh').disabled = accountBusy; $('accountLogout').disabled = accountBusy;
+    for (const form of $('account').querySelectorAll('form')) {
+      for (const el of form.querySelectorAll('input, button')) el.disabled = accountBusy || !isOnline();
+    }
+    $('account').setAttribute('aria-busy', accountBusy ? 'true' : 'false');
+  }
+  async function loadAccount() {
+    const request = ++accountRequest;
+    renderAccount(); accountMessage('Checking your account and test shop…');
+    try {
+      if (!isOnline()) await initOnline();
+      if (!isOnline()) throw new Error('Account services need an internet connection and the updated game server.');
+      const catalog = await api('GET', '/api/shop');
+      if (request !== accountRequest || panel !== 'account') return;
+      shopCatalog = catalog;
+      if (profile && profile.account && profile.token) {
+        const token = profile.token, me = await api('GET', '/api/me', null, true);
+        if (request !== accountRequest || panel !== 'account' || !profile || profile.token !== token) return;
+        adoptProfile(token, me);
+      }
+      if (request === accountRequest && panel === 'account') accountMessage('Accounts protect your profile. Purchases are test-only and cosmetic-only.');
+    } catch (e) {
+      if (request === accountRequest && panel === 'account') accountMessage(e.status === 404 ? 'This game server does not have accounts and the test shop yet.' : e.name === 'AbortError' ? 'Connection timed out. Close and reopen this panel to retry.' : e.message);
+    } finally { if (request === accountRequest && panel === 'account') renderAccount(); }
+  }
+  async function accountAction(action) {
+    if (accountBusy) return;
+    accountBusy = true; ++accountRequest;
+    clearTimeout(upTimer); clearTimeout(lookTimer); clearTimeout(achSyncTimer);
+    renderAccount(); accountMessage('Working…');
+    try {
+      if (!isOnline()) throw new Error('Connect to the game server and try again.');
+      // Keep the submitting player stable throughout every in-flight replay upload.
+      if (flushing) await flushing;
+      if (friendSyncing) await friendSyncing;
+      await action();
+    } catch (e) { accountMessage(e.name === 'AbortError' ? 'Connection timed out. Check your account before retrying.' : e.message); }
+    finally { clearAccountFormSecrets(); accountBusy = false; renderAccount(); }
+  }
+  for (const id of ['accountBtn', 'profileAccountBtn', 'lockerAccountBtn']) $(id).onclick = () => openPanel('account');
+  $('accountRegisterForm').onsubmit = e => {
+    e.preventDefault();
+    const username = $('registerUsername').value.trim(), password = $('registerPassword').value;
+    if (!$('accountConfirmLink').checked) { accountMessage('Confirm which existing profile you want to protect.'); return; }
+    accountAction(async () => {
+      await ensureProfile();
+      if (profile.account) throw new Error('This profile already has an account.');
+      const me = await api('POST', '/api/account/register', { username, password, confirmLink: true }, true);
+      adoptProfile(me.token, me); showRecoveryCode(me.recoveryCode);
+      accountMessage('Account created. Your old sync code is disabled. Save the recovery code now, then confirm it below.');
+    });
+  };
+  $('accountLoginForm').onsubmit = e => {
+    e.preventDefault(); const username = $('loginUsername').value.trim(), password = $('loginPassword').value;
+    accountAction(async () => {
+      const me = await api('POST', '/api/account/login', { username, password });
+      clearAccountSecrets(); adoptProfile(me.token, me, true);
+      accountMessage('Signed in. Your purchases and profile were checked with the server.');
+      flushRuns(); flushFriendRuns();
+    });
+  };
+  $('accountRecoverForm').onsubmit = e => {
+    e.preventDefault(); const username = $('recoverUsername').value.trim(), recoveryCode = $('recoverCode').value.trim(), password = $('recoverPassword').value;
+    accountAction(async () => {
+      const me = await api('POST', '/api/account/recover', { username, recoveryCode, password });
+      clearAccountSecrets(); adoptProfile(me.token, me, true); showRecoveryCode(me.recoveryCode);
+      accountMessage('Password reset and other sessions signed out. Save your replacement recovery code now.');
+    });
+  };
+  $('accountRotateForm').onsubmit = e => {
+    e.preventDefault(); const password = $('rotatePassword').value;
+    accountAction(async () => {
+      const me = await api('POST', '/api/account/rotate-recovery', { password }, true);
+      clearAccountSecrets(); adoptProfile(me.token, me); showRecoveryCode(me.recoveryCode);
+      accountMessage('Recovery code replaced and other sessions signed out. Save your replacement code now.');
+    });
+  };
+  $('accountConfirmRecoveryForm').onsubmit = e => {
+    e.preventDefault(); const recoveryCode = $('confirmRecoveryCode').value.trim();
+    accountAction(async () => {
+      const me = await api('POST', '/api/account/confirm-recovery', { recoveryCode }, true);
+      adoptProfile(profile.token, me); clearAccountSecrets();
+      accountMessage('Recovery code confirmed. Keep your saved copy safe.');
+    });
+  };
+  async function restorePurchases() {
+    if (!profile || !profile.account || !profile.token) throw new Error('Sign in to restore purchases.');
+    const me = await api('POST', '/api/shop/restore', {}, true);
+    adoptProfile(profile.token, me);
+    accountMessage(paidInventory.has('band:supporter') ? 'Server verified: Supporter headband restored.' : 'Purchases checked. No active Supporter entitlement yet. If you just checked out, wait briefly and refresh.');
+  }
+  $('accountRefresh').onclick = $('accountRestore').onclick = () => accountAction(restorePurchases);
+  $('accountLogout').onclick = () => accountAction(async () => {
+    await api('POST', '/api/account/logout', {}, true);
+    profile = null; paidInventory.clear(); persistProfile(); clearAccountSecrets();
+    // Queued runs stay with their owner. The next guest does not inherit account progression.
+    unlocked = new Set(); store.set('rtb_ach', []);
+    wallet = { earned: 0, levels: cleanUpgrades({}) }; store.set('rtb_wallet', wallet);
+    stats = { runs: 0, falls: 0, mat: 0, streak: 0, lastDaily: 0 }; store.set('rtb_stats', stats);
+    look = cleanLook(DEFAULT_LOOK); store.set('rtb_look', look);
+    refreshProfileControls(); accountMessage('Signed out. Sign in again to restore your account purchases.');
+  });
+  $('testCheckout').onclick = () => accountAction(async () => {
+    if (nativePurchasesUnavailable()) throw new Error('Purchases are unavailable in the Android app.');
+    if (!profile || !profile.account || !profile.token || !profile.account.recoveryConfirmed) throw new Error('Sign in and confirm your saved recovery code first.');
+    const catalog = await api('GET', '/api/shop'); shopCatalog = catalog;
+    if (!testOfferReady(catalog)) throw new Error('Test checkout is disabled or the test offer changed.');
+    const checkout = await api('POST', '/api/shop/checkout', { sku: 'supporter_pack', channel: 'web' }, true);
+    const url = new URL(checkout.url);
+    if (url.protocol !== 'https:' || url.hostname !== 'checkout.stripe.com' || url.username || url.password) throw new Error('The server returned an untrusted checkout address.');
+    accountMessage('Opening Stripe sandbox checkout. Use test payment details only.');
+    location.assign(url.href);
+  });
+  $('supporterWear').onclick = () => {
+    if (!paidInventory.has('band:supporter')) return;
+    setLook('band', 'supporter'); lockerSlot = 'band'; openPanel('locker');
+  };
+  $('account').addEventListener('keydown', e => {
+    if (e.key !== 'Tab') return;
+    const elements = [...$('account').querySelectorAll('button:not(:disabled), input:not(:disabled), summary, [tabindex="0"]')].filter(el => el.getClientRects().length);
+    const first = elements[0], last = elements[elements.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
 
   // ---------- tracked friend challenges ----------
   let friendSupported = false, friendDetail = null, friendRequest = 0;
@@ -1987,10 +2342,10 @@ if (typeof document !== 'undefined') (function boot() {
     friendSyncing = (async () => {
       const results = {};
       for (const item of [...friendPending]) {
-        if (!profile || item.owner !== profile.token) continue;
+        if (!profile || item.owner !== profileOwner()) continue;
         try { results[item.code] = await api('POST', '/api/challenges/' + item.code + '/attempts', { replay: item.replay }, true); }
         catch (e) {
-          if (!e.status || e.status === 429 || e.status >= 500) { results[item.code] = { pending: true }; break; }
+          if (!e.status || e.status === 401 || e.status === 429 || e.status >= 500) { results[item.code] = { pending: true }; break; }
           results[item.code] = { error: e.message };
         }
         friendPending = friendPending.filter(x => x !== item); store.set('rtb_friend_pending', friendPending);
@@ -2001,7 +2356,7 @@ if (typeof document !== 'undefined') (function boot() {
   }
   async function submitFriendRun(code, r) {
     const replay = encodeReplay(r);
-    if (!friendPending.some(x => x.code === code && x.replay === replay && x.owner === profile.token)) friendPending.push({ code, replay, owner: profile.token });
+    if (!friendPending.some(x => x.code === code && x.replay === replay && x.owner === profileOwner())) friendPending.push({ code, replay, owner: profileOwner() });
     store.set('rtb_friend_pending', friendPending);
     const results = await flushFriendRuns(); return results[code];
   }
@@ -2045,7 +2400,16 @@ if (typeof document !== 'undefined') (function boot() {
     } catch (e) { flash("That replay link didn't work"); }
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   }
-  readHashReplay(); refreshMenu(); initOnline().then(() => { if (incomingFriend) { showFriendPanel(); friendAction(() => openFriend(incomingFriend[1].toUpperCase())); } });
+  readHashReplay(); refreshMenu(); initOnline().then(async () => {
+    const checkoutReturn = new URLSearchParams(location.search).get('checkout');
+    if (checkoutReturn === 'return' || checkoutReturn === 'cancel') {
+      await openPanel('account');
+      if (checkoutReturn === 'return') await accountAction(restorePurchases);
+      else accountMessage('Checkout canceled. No item is unlocked by returning here.');
+      const clean = new URL(location.href); clean.searchParams.delete('checkout');
+      history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
+    } else if (incomingFriend) { showFriendPanel(); friendAction(() => openFriend(incomingFriend[1].toUpperCase())); }
+  });
   let displayedWeek = currentWeek().day;
   setInterval(() => {
     if (mode === 'menu') refreshMenu();

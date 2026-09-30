@@ -24,7 +24,7 @@ test('recovery separates legacy boards, retains wallet/profile data and rematche
   try {
     const { token } = (await call('POST', '/api/player', { name: 'Returning Player' })).body;
     const player = db.prepare('SELECT id FROM players').get().id;
-    db.prepare('UPDATE players SET look=?, upgrades=?, achievements=? WHERE id=?').run('{"hat":"crown"}', '{"spring":1}', '["first_hop"]', player);
+    db.prepare('UPDATE players SET look=?, upgrades=?, achievements=? WHERE id=?').run('{"hat":"crown"}', '{"spring":1}', '["first_hop","top10"]', player);
     for (const [kind, day, version] of [['endless', 0, 4], ['daily', 273, 4], ['weekly', 271, 5]]) {
       clock += 61000; // each migration case gets an independent rate-limit window
       const replay = R.encodeReplay({ kind, day, seed: 11, steps: 500, changes: [] });
@@ -54,7 +54,7 @@ test('recovery separates legacy boards, retains wallet/profile data and rematche
     const me = (await call('GET', '/api/me', null, token)).body;
     assert.equal(me.name, 'Returning Player'); assert.equal(me.earned, 300);
     assert.equal(me.upgrades.spring, 1); assert.equal(me.look.hat, 'crown');
-    assert.deepEqual(me.achievements, ['first_hop']);
+    assert.deepEqual(me.achievements, ['first_hop','top10']);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM runs').get().n, 3);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM bests').get().n, 3);
   } finally {

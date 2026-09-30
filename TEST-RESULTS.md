@@ -29,3 +29,28 @@ Tested 2026-09-30 in the cloud workspace with Node 24.19.0.
 ## Run locally
 
 Use Node >=22.13, then `cd server && npm test` and `npm start`. Open the printed localhost address for manual playtesting. The web game is a single HTML file with no asset compilation step; the server has no npm dependencies.
+
+## Rebuilt test-only payment foundation — 2026-09-30
+
+The first unpushed local payment commit was lost in an executor reset. This is a newly reconstructed and freshly tested implementation on `feat/payment-foundation` from base `f3ecfde`, not an assertion that the old commit's bytes were recovered.
+
+Fresh verification:
+- Clean lockfile install (`npm ci --offline`) succeeded; full Node suite **50/50 passing**
+- Real Stripe SDK raw-body signature/timestamp tests with clearly synthetic offline fixtures; provider HTTP calls mocked
+- Account migration, recovery/code rotation/session revocation, password-login/reset race, recovery/ownership/Chalk retention and SQLite close/reopen
+- Forged paid achievements/equips/prices, mismatched amount/SKU/live events, duplicate concurrent checkout/webhooks, reordered refund/dispute terminal revocation, expired/retried checkout concurrency, native purchase denial
+- Reproducible executable DOM-state UI test against real local backend: consent, recovery/login/logout, session-only tokens, busy navigation/secret clearing, queue owner isolation, restore without false unlock, Android guards
+- Android standalone Java navigation policy **49 assertions passed**, plus three Node static platform/signing gate tests
+- Pure simulation unchanged from base, SHA256 `6eb4e2465fcb287cecb3fc73065ee186f834e732d062d30bac320d2269e9f3ce`
+- JS syntax and `git diff --check` passed
+
+Fresh independent security review completed with no unresolved blockers. The reviewer independently reran all 50 tests and additional adversarial probes: three concurrent expired retries create one replacement; streamed checkout after session revocation returns 401 without provider call; aged uncertain checkout returns 409; hourly limiter survives three-minute cleanup; concurrent single-use recovery returns one success and one rejection. This supports draft publication only, not launch approval.
+
+Unverified/blocked:
+- Real Stripe sandbox Checkout/webhook/refund flow: no authorized credentials configured or transaction made
+- Actual Railway volume/backup/restore/redeploy proof: prior audit found no persistent volume; checkout stays disabled by default
+- Android assembly, Android unit tests and lint: Gradle download reports network unreachable; Android SDK unavailable locally; CI will provide a separate result
+- Real browser visual/layout/mobile/accessibility-focus QA: DOM harness is not a browser; previous supported browser attempts were environment-blocked
+- Production launch: live mode unsupported; no deploy, real charge, financial account/credential creation or external configuration changes performed
+
+See `server/PAYMENTS.md` and `android/PAYMENT-SAFETY.md` for operational requirements.

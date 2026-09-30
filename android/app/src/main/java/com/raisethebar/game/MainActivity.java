@@ -1,7 +1,6 @@
 package com.raisethebar.game;
 
 import android.app.Activity;
-import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Rect;
 import android.net.Uri;
@@ -30,6 +29,9 @@ import androidx.window.layout.FoldingFeature;
 import androidx.window.layout.WindowInfoTracker;
 import androidx.window.layout.WindowLayoutInfo;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -69,7 +71,8 @@ public class MainActivity extends Activity {
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
         }
 
-        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
+        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null
+                || !PaymentNavigationPolicy.isLocalGameUrl(webView.getUrl())) {
             webView.loadUrl(gameUrlFor(getIntent()));
         }
     }
@@ -87,12 +90,18 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(false);
         s.setSupportZoom(false);
+        // No onCreateWindow handler: popup and target=_blank requests are denied.
+        s.setSupportMultipleWindows(true);
+        s.setJavaScriptCanOpenWindowsAutomatically(false);
         s.setTextZoom(100);                      // ignore the system font size; the HUD is laid out in px
 
         webView.addJavascriptInterface(new GameBridge(), "RTBAndroid");
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                if (PaymentNavigationPolicy.blocksResource(request.getUrl().toString(), request.isForMainFrame())) {
+                    return blockedWebCheckout();
+                }
                 return assetLoader.shouldInterceptRequest(request.getUrl());
             }
 
@@ -111,10 +120,14 @@ public class MainActivity extends Activity {
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                Uri url = request.getUrl();
-                if (WebViewAssetLoader.DEFAULT_DOMAIN.equals(url.getHost())) return false;
-                openExternally(url);
-                return true;
+                // Never route checkout to a remote document, external browser or intent.
+                return !PaymentNavigationPolicy.isLocalGameUrl(request.getUrl().toString());
+            }
+
+            @Override
+            @SuppressWarnings("deprecation")
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return !PaymentNavigationPolicy.isLocalGameUrl(url);
             }
         });
         setContentView(webView);
@@ -172,11 +185,10 @@ public class MainActivity extends Activity {
         handleBack(); // Android 12L and older; newer versions use the OnBackInvokedCallback above
     }
 
-    private void openExternally(Uri url) {
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW, url));
-        } catch (ActivityNotFoundException ignored) {
-        }
+    private static WebResourceResponse blockedWebCheckout() {
+        byte[] message = "Web checkout is unavailable in this Android app.".getBytes(StandardCharsets.UTF_8);
+        return new WebResourceResponse("text/plain", "UTF-8", 403, "Forbidden",
+                Collections.emptyMap(), new ByteArrayInputStream(message));
     }
 
     @SuppressWarnings("deprecation")
@@ -268,6 +280,16 @@ public class MainActivity extends Activity {
 
     /** Exposed to the game as window.RTBAndroid. Called on a WebView background thread. */
     final class GameBridge {
+        @JavascriptInterface
+        public String platform() {
+            return "android";
+        }
+
+        @JavascriptInterface
+        public boolean supportsWebCheckout() {
+            return false;
+        }
+
         @JavascriptInterface
         public String shareBaseUrl() {
             return BuildConfig.SHARE_BASE_URL;
