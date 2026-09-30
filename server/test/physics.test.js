@@ -3,74 +3,60 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadSim, verifyReplay } = require('../sim');
 const R = loadSim(), dt = R.CFG.DT;
-const centre = g => {
-  const P = g.body.pts, mass = P.reduce((v, p) => v + p.m, 0);
-  return { x: P.reduce((v, p) => v + p.m * p.x, 0) / mass,
-    y: P.reduce((v, p) => v + p.m * p.y, 0) / mass };
-};
 
-test('releasing either base or upgraded arms preserves momentum without a launch impulse', () => {
-  for (const up of [{}, { spring: 5, pull: 5 }]) {
-    const actual = R.newGame(77, 'play', up), free = R.newGame(77, 'play', up);
-    for (let i = 0; i < 54; i++) for (const g of [actual, free]) {
-      g.hands.forEach(h => h.key = true); R.stepSim(g, dt);
+test('opening gaps restore the wide classic ladder, including assisted weekly spacing', () => {
+  for (const seed of [11, 77, 1234]) {
+    for (const rules of [undefined, { kind: 'weekly', day: 285 }]) {
+      const g = R.newGame(seed, 'play', {}, rules);
+      for (let i = 1; i <= 4; i++) {
+        assert.ok(Math.abs(g.bars[i].y - g.bars[i - 1].y - (rules ? 0.44 : 0.55)) < 1e-10);
+      }
     }
-    for (const h of free.hands) {
-      h.exclBar = h.grip.bar; h.exclT = 0.15; h.grip = null;
-      h.holdT = 0; h.reachT = R.CFG.REACH_TIME; h.prevKey = false;
-    }
-    for (const g of [actual, free]) { g.hands.forEach(h => h.key = false); R.stepSim(g, dt); }
-    assert.equal(actual.hops, 1);
-    assert.deepEqual(actual.body.pts, free.body.pts);
-    assert.equal(actual.stam, free.stam, 'letting go does not spend artificial launch energy');
   }
 });
 
-test('reaching and leg motors exert no net internal force or torque in midair', () => {
-  for (const bits of [0, 1, 2, 3]) {
-    const g = R.newGame(11);
-    for (const p of g.body.pts) { p.y += 8; p.py += 8; }
-    g.hands.forEach((h, i) => { h.grip = null; h.cool = 2; h.key = !!(bits & (1 << i)); });
-    R.stepSim(g, dt);
-    const P = g.body.pts;
-    let fx = 0, fy = 0, torque = 0;
-    for (const p of P) {
-      const internalY = p.fy + p.m * R.CFG.G;
-      fx += p.fx; fy += internalY;
-      // Forces were calculated at the pre-integration positions.
-      torque += p.px * internalY - p.py * p.fx;
+test('pulls respond immediately with a two-arm bonus and an early release cue', () => {
+  const single = R.newGame(11), both = R.newGame(11);
+  single.hands[0].key = true;
+  both.hands.forEach(h => h.key = true);
+  for (const g of [single, both]) R.stepSim(g, dt);
+  assert.ok(single.hands[0].pullF > 500, 'full force on the first input step');
+  assert.ok(both.hands[0].pullF > single.hands[0].pullF * 1.25);
+  let readyStep = 0;
+  for (let i = 2; i <= 40; i++) {
+    R.stepSim(both, dt);
+    if (both.hands.some(h => R.throwReady(both, h) === 2)) { readyStep = i; break; }
+  }
+  assert.ok(readyStep >= 20 && readyStep <= 30, 'release cue around 0.2 seconds');
+});
+
+test('timed release restores hop impulse and Spring Hop increases the climb', () => {
+  function hop(up) {
+    const g = R.newGame(11, 'play', up);
+    for (let i = 0; i < 24; i++) { g.hands.forEach(h => h.key = true); R.stepSim(g, dt); }
+    g.hands.forEach(h => h.key = false); R.stepSim(g, dt);
+    assert.equal(g.hops, 1);
+    assert.ok(g.events.some(e => e.type === 'throw' && e.hop));
+    for (let i = 0; i < 120; i++) R.stepSim(g, dt);
+    return g;
+  }
+  const base = hop({}), spring = hop({ spring: 5 });
+  assert.ok(base.maxBar >= 1, 'short classic pull reaches the next wider bar');
+  assert.ok(spring.maxHeight > base.maxHeight + 0.1, 'Spring Hop restores an upward kick');
+});
+
+test('recovery uses new replay versions and rejects all legacy physics without reinterpretation', () => {
+  assert.equal(R.REPLAY_VERSION, 6); assert.equal(R.WEEKLY_REPLAY_VERSION, 7);
+  for (const kind of ['endless', 'daily', 'weekly']) {
+    const rec = { seed: 11, kind, day: 271, steps: 500, changes: [[0, 3], [24, 0]] };
+    const code = R.encodeReplay(rec);
+    assert.equal(R.decodeReplay(code).kind, kind);
+    for (const version of [1, 2, 3, 4, 5]) {
+      const bytes = Buffer.from(code, 'base64url'); bytes[0] = version;
+      assert.throws(() => R.decodeReplay(bytes.toString('base64url')), /unsupported replay version/);
+      assert.throws(() => verifyReplay(R, bytes.toString('base64url')), /unsupported replay version/);
     }
-    assert.ok(Math.abs(fx) < 1e-9); assert.ok(Math.abs(fy) < 1e-9);
-    assert.ok(Math.abs(torque) < 1e-8);
   }
-});
-
-test('airborne limb movements leave the centre of mass on its gravity/drag trajectory', () => {
-  const g = R.newGame(11);
-  for (const p of g.body.pts) { p.y += 8; p.py = p.y - 1.2 * dt; p.px = p.x - 0.3 * dt; }
-  g.hands.forEach(h => { h.grip = null; h.cool = 2; });
-  let expected = centre(g), vx = 0.3 * dt, vy = 1.2 * dt;
-  for (let i = 0; i < 80; i++) {
-    g.hands[0].key = i % 24 < 18; g.hands[1].key = i % 30 < 20;
-    vx *= R.CFG.DAMP; vy = vy * R.CFG.DAMP - R.CFG.G * dt * dt;
-    expected.x += vx; expected.y += vy;
-    R.stepSim(g, dt);
-  }
-  const actual = centre(g);
-  assert.ok(Math.abs(actual.x - expected.x) < 1e-8);
-  assert.ok(Math.abs(actual.y - expected.y) < 1e-8);
-});
-
-test('muscle force decreases with faster shortening and fatigue', () => {
-  function pull(stam, speed) {
-    const g = R.newGame(11); g.stam = stam;
-    for (const p of g.body.pts) p.py = p.y - speed * dt;
-    for (const h of g.hands) { const hp = g.body.pts[h.idx]; hp.py = hp.y; h.key = true; h.prevKey = true; h.activation = 1; }
-    R.stepSim(g, dt); return g.hands[0].pullF;
-  }
-  const fresh = pull(100, 0);
-  assert.ok(pull(100, 2) < fresh * 0.6);
-  assert.ok(pull(25, 0) < fresh * 0.6);
 });
 
 test('coached releases climb several bars and reproduce exactly through replay verification', () => {

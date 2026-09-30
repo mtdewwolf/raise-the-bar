@@ -8,7 +8,7 @@ const MONDAY = Date.UTC(2026, 8, 28);
 const WEEK = 7 * 86400000;
 
 // Use the real game and raw keyboard/touch bit masks, just like the client recorder.
-function playWeekly(day, { seed = RTB.weeklySeed(day), up = {}, bits = 3, hold = 60 } = {}) {
+function playWeekly(day, { seed = RTB.weeklySeed(day), up = {}, bits = 3, hold = 30 } = {}) {
   const rules = { kind: 'weekly', day };
   const g = RTB.newGame(seed, 'play', up, rules);
   const changes = []; let previous = 0, maxHands = 0;
