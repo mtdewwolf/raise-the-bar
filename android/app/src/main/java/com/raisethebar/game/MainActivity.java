@@ -19,6 +19,7 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.window.OnBackAnimationCallback;
 import android.window.OnBackInvokedDispatcher;
 
 import androidx.core.content.ContextCompat;
@@ -64,7 +65,16 @@ public class MainActivity extends Activity {
         enterImmersive(); // needs the decor view that setContentView creates (crashes before it on Android 11+)
         windowInfo = new WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(this));
 
-        if (Build.VERSION.SDK_INT >= 33) {
+        // API 36 does not deliver onBackPressed or KEYCODE_BACK. The callback is the back path.
+        if (Build.VERSION.SDK_INT >= 34) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT, new OnBackAnimationCallback() {
+                        @Override
+                        public void onBackInvoked() {
+                            handleBack();
+                        }
+                    });
+        } else if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
         }
@@ -136,6 +146,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        // After process death Android redelivers getIntent(), not the previous onNewIntent argument.
+        setIntent(intent);
         String code = replayCode(intent);
         // A changed query string forces a real reload so the game reads the new challenge invite.
         if (code != null) webView.loadUrl(GAME_URL + "?t=" + System.currentTimeMillis() + "#" + code);
@@ -169,7 +181,7 @@ public class MainActivity extends Activity {
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
-        handleBack(); // Android 12L and older; newer versions use the OnBackInvokedCallback above
+        handleBack(); // API 32 and older. API 33+ uses the callback; API 36 never calls this.
     }
 
     private void openExternally(Uri url) {
@@ -182,6 +194,11 @@ public class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     private void enterImmersive() {
         Window w = getWindow();
+        // Target 36 cannot opt out of edge-to-edge. Keep the game under the system bars and hide them.
+        if (Build.VERSION.SDK_INT >= 29) {
+            w.setStatusBarContrastEnforced(false);
+            w.setNavigationBarContrastEnforced(false);
+        }
         if (Build.VERSION.SDK_INT >= 30) {
             w.setDecorFitsSystemWindows(false);
             WindowInsetsController c = w.getInsetsController();

@@ -1,4 +1,4 @@
-name: Android APK
+name: Android
 
 on:
   push:
@@ -19,14 +19,52 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platforms;android-36 build-tools;35.0.0
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew assembleDebug assembleRelease testDebugUnitTest lint
+      - name: Debug APK, unit tests, and lint
+        run: ./gradlew assembleDebug testDebugUnitTest lint
         env:
           # optional: set a repository variable RTB_API to your leaderboard server's URL
           RTB_API: ${{ vars.RTB_API }}
       - uses: actions/upload-artifact@v4
         with:
-          name: raising-the-bar-apk
-          path: |
-            android/app/build/outputs/apk/debug/app-debug.apk
-            android/app/build/outputs/apk/release/app-release.apk
+          name: raising-the-bar-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Play App Bundle
+        working-directory: android
+        env:
+          RTB_API: ${{ vars.RTB_API }}
+          RTB_KEYSTORE_BASE64: ${{ secrets.RTB_KEYSTORE_BASE64 }}
+          RTB_KEYSTORE_PASSWORD: ${{ secrets.RTB_KEYSTORE_PASSWORD }}
+          RTB_KEY_ALIAS: ${{ secrets.RTB_KEY_ALIAS }}
+          RTB_KEY_PASSWORD: ${{ secrets.RTB_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RTB_KEYSTORE_BASE64}${RTB_KEYSTORE_PASSWORD}${RTB_KEY_ALIAS}${RTB_KEY_PASSWORD}" ]; then
+            echo "::notice title=Play App Bundle skipped::Upload keystore secrets are not set, so bundleRelease was skipped. The debug APK above is for sideload testing only. Add RTB_KEYSTORE_BASE64, RTB_KEYSTORE_PASSWORD, RTB_KEY_ALIAS, and RTB_KEY_PASSWORD. See android/PLAY_APP_SIGNING.md."
+            exit 0
+          fi
+          missing=0
+          for name in RTB_KEYSTORE_BASE64 RTB_KEYSTORE_PASSWORD RTB_KEY_ALIAS RTB_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Incomplete upload keystore::${name} is empty. Set all four Play upload secrets, or unset all four to skip the bundle. See android/PLAY_APP_SIGNING.md."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          keystore="${RUNNER_TEMP}/upload.keystore"
+          printf '%s' "$RTB_KEYSTORE_BASE64" | base64 -d > "$keystore"
+          export RTB_KEYSTORE_FILE="$keystore"
+          ./gradlew bundleRelease
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: raising-the-bar-play-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: ignore

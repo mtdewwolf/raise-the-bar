@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cloud backup and device-to-device transfer on Android 12+ (API 31+). -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="app_webview" />
+        <exclude domain="sharedpref" path="WebViewChromiumPrefs.xml" />
+        <exclude domain="database" path="webview.db" />
+        <exclude domain="database" path="webviewCache.db" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="app_webview" />
+        <exclude domain="sharedpref" path="WebViewChromiumPrefs.xml" />
+        <exclude domain="database" path="webview.db" />
+        <exclude domain="database" path="webviewCache.db" />
+    </device-transfer>
+</data-extraction-rules>

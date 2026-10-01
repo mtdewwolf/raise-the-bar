@@ -19,13 +19,15 @@ The `android/` folder is an Android app that wraps the same `index.html` in a fu
   - Rendering is sharp at the inner screen's pixel density.
   - **Flex mode:** half-fold the phone in landscape (tabletop) and the climb stays on the top half while the bottom half becomes a controller with large left and right pads.
 
-**Get an APK:** every push that touches the game builds one in GitHub Actions (*Android APK* workflow → *raising-the-bar-apk* artifact). Install `app-release.apk` on your phone; you may need to allow installs from unknown sources.
+**Get a test APK:** every push that touches the game builds a debug APK in GitHub Actions (*Android* workflow → *raising-the-bar-debug-apk* artifact). Install `app-debug.apk` on your phone; you may need to allow installs from unknown sources. Debug builds are signed with the public test key in `android/app/test-signing.keystore`, so a newer debug APK installs as an update and keeps saved bests.
 
-**Build it yourself:** open `android/` in Android Studio, or run `./gradlew assembleRelease` from `android/` (needs JDK 17 and the Android SDK). The APK ends up in `android/app/build/outputs/apk/`. All builds are signed with a shared test key that's committed to the repo (`android/app/test-signing.keystore`). Because every build has the same signature, a new APK installs as an update over the old one and keeps your saved bests. The key is public, so before publishing to Google Play set `RTB_KEYSTORE_FILE`, `RTB_KEYSTORE_PASSWORD`, `RTB_KEY_ALIAS` and `RTB_KEY_PASSWORD` (as Gradle properties or environment variables) to use your own private key for release builds.
+**Play Store:** upload an Android App Bundle, not an APK. The same workflow builds `app-release.aab` (artifact *raising-the-bar-play-aab*) only after the upload-keystore secrets exist. Release builds fail if those are unset, and they never fall back to the test key. The one-time Play App Signing, secret, and `assetlinks.json` steps are in [android/PLAY_APP_SIGNING.md](android/PLAY_APP_SIGNING.md).
 
-*Upgrading from a build older than 1.2.0:* those were signed with a throwaway key, so uninstall the old app once before installing 1.2.0. Updates install normally after that.
+**Build it yourself:** open `android/` in Android Studio, or from `android/` run `./gradlew assembleDebug` (JDK 17 and the Android SDK). For a store bundle, set `RTB_KEYSTORE_FILE`, `RTB_KEYSTORE_PASSWORD`, `RTB_KEY_ALIAS`, and `RTB_KEY_PASSWORD`, then run `./gradlew bundleRelease`.
 
-Challenge links from the app point at `https://mtdewwolf.github.io/raise-the-bar/`. That URL only works for friends if the game is published on GitHub Pages. To use a different address, change `shareHost` / `sharePath` in `android/app/build.gradle`.
+*Upgrading from a build older than 1.2.0:* those were signed with a throwaway key, so uninstall the old app once before installing 1.2.0. Updates install normally after that, as long as the signature matches (debug test key, or your upload key for release builds).
+
+Friend invite links are `https://<host>/challenge/<code>`. Replay links keep the share path (`https://mtdewwolf.github.io/raise-the-bar/#r=…` unless `RTB_API` is set, in which case the host and path come from that HTTPS URL). The app claims both. Taps open the app automatically only after Digital Asset Links is set up; see the Play signing doc.
 
 ## Controls
 
