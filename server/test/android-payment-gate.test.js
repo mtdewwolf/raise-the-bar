@@ -9,6 +9,7 @@ const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '../..');
 const gradle = fs.readFileSync(path.join(root, 'android/app/build.gradle'), 'utf8');
 const activity = fs.readFileSync(path.join(root, 'android/app/src/main/java/com/raisethebar/game/MainActivity.java'), 'utf8');
+const manifest = fs.readFileSync(path.join(root, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
 
 test('Android assets carry an unconditional platform marker and disallow embedded checkout', () => {
   const injection = gradle.indexOf('<meta name="rtb-platform" content="android">');
@@ -25,6 +26,7 @@ test('Android assets carry an unconditional platform marker and disallow embedde
   assert.match(activity, /setSupportMultipleWindows\(true\)/);
   assert.match(activity, /setJavaScriptCanOpenWindowsAutomatically\(false\)/);
   assert.doesNotMatch(activity, /startActivity\(new Intent\(Intent.ACTION_VIEW/);
+  assert.match(manifest, /android:usesCleartextTraffic="false"/);
 });
 
 test('Android release signing has no public test-key fallback', () => {
@@ -39,6 +41,9 @@ test('Android release signing has no public test-key fallback', () => {
   assert.match(gradle, /task\.name == 'prePlayStoreReleaseBuild'[\s\S]*?task\.dependsOn validatePlayStoreConfiguration/);
   assert.match(gradle, /6e7f72b668c448ff5e388d10894eb473098779bdc31fcee9acb51f944dc5f0cc/);
   assert.match(gradle, /internalTest \{[\s\S]*?versionNameSuffix '-internal-test'/);
+  assert.match(gradle, /playStore \{[\s\S]*?applicationId 'com\.groves\.rtb'/);
+  assert.match(gradle, /debug \{[\s\S]*?applicationIdSuffix '\.debug'/);
+  assert.match(gradle, /internalTest \{[\s\S]*?applicationIdSuffix '\.internaltest'/);
   assert.match(gradle, /compileSdk 36/);
   assert.match(gradle, /targetSdk 36/);
   assert.match(gradle, /playStoreImplementation 'com\.android\.billingclient:billing:9\.1\.0'/);

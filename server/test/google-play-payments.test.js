@@ -2,9 +2,10 @@
 
 const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const {createApp}=require('../server'),{openDb}=require('../db');
+const {googlePlayProvider}=require('../google-play-provider');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 
-const PASSWORD='correct horse fixture battery',PACKAGE='com.raisethebar.game',PRODUCT='supporter_pack_test';
+const PASSWORD='correct horse fixture battery',PACKAGE='com.groves.rtb',PRODUCT='supporter_pack_test';
 const accountId=user=>crypto.createHash('sha256').update('rtb-play:'+user).digest('hex');
 const token=n=>'play_purchase_token_'+String(n).padStart(4,'0');
 
@@ -69,4 +70,14 @@ test('authenticated RTDN is authoritative, deduplicated and revokes only the Pla
 test('Google Play is disabled without the complete server verification configuration',async()=>{
   const app=createApp({dbFile:':memory:',pool:{close:async()=>{}}});await new Promise(resolve=>app.listen(0,resolve));
   try{const shop=await fetch('http://127.0.0.1:'+app.address().port+'/api/shop').then(response=>response.json());assert.equal(shop.playBillingEnabled,false);}finally{await app.closeAll();}
+});
+
+test('production Google Play configuration accepts only the permanent Console package',()=>{
+  const names=['RTB_GOOGLE_PLAY_ENABLED','RTB_GOOGLE_PLAY_PACKAGE','GOOGLE_PLAY_PRODUCT_SUPPORTER_PACK','RTB_GOOGLE_PLAY_PUBSUB_AUDIENCE','RTB_GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT'];
+  const prior=Object.fromEntries(names.map(name=>[name,process.env[name]]));
+  try{
+    Object.assign(process.env,{RTB_GOOGLE_PLAY_ENABLED:'1',GOOGLE_PLAY_PRODUCT_SUPPORTER_PACK:PRODUCT,RTB_GOOGLE_PLAY_PUBSUB_AUDIENCE:'https://fixture.invalid/api/payments/google-play/rtdn',RTB_GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT:'push@fixture.invalid'});
+    process.env.RTB_GOOGLE_PLAY_PACKAGE='com.attacker.app';assert.equal(googlePlayProvider().enabled,false);
+    process.env.RTB_GOOGLE_PLAY_PACKAGE=PACKAGE;assert.equal(googlePlayProvider().enabled,true);
+  }finally{for(const name of names)if(prior[name]===undefined)delete process.env[name];else process.env[name]=prior[name];}
 });

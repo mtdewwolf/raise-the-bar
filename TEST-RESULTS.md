@@ -35,12 +35,12 @@ Use Node >=22.13, then `cd server && npm test` and `npm start`. Open the printed
 Current implementation is on `feat/payment-foundation` / PR13. The Stripe hardening checkpoint `c2c1cd0` was pushed and its exact GitHub server/Android/security checks passed before the Play integration was added.
 
 Fresh verification:
-- Clean lockfile install (`npm ci`) succeeded; full Node suite **60/60 passing**
+- Clean lockfile install (`npm ci`) succeeded; full Node suite **61/61 passing**
 - Stripe Node SDK remains pinned at22.6.2 and API `2026-08-26.dahlia`; real SDK raw-body signature/timestamp handling is exercised with synthetic offline fixtures only
 - Reusable configured sandbox Price/Product identity, amount and currency fail closed; `rk_test_` and `sk_test_` are accepted while live keys are rejected
 - Dynamic payment methods, stable per-order integration labels/idempotency, delayed `processing` state, authenticated refresh, async success/failure, duplicate/concurrent retries, terminal refunds/disputes and source-aware ownership are covered
 - Play backend adapter covers ProductPurchaseV2 state/product/package/account binding, globally unique token ownership, transactional grant-before-acknowledge, durable acknowledgement retry, authenticated/deduplicated RTDN, periodic reconciliation and source-specific revocation
-- Android targets API36, uses Billing9.1.0 only in the `playStore` flavor, and keeps the `direct` flavor Billing-free. After the final origin-channel refactor, both debug APKs, both minified internal-test APKs and the Play internal-test AAB built; both flavor unit suites and debug/internal-test lints passed
+- Android targets API36, uses Billing9.1.0 only in the `playStore` flavor, and keeps the `direct` flavor Billing-free. The Play release ID is `com.groves.rtb`; the direct release retains `com.raisethebar.game`, while debug/internal-test IDs are suffixed to avoid replacing either release install. After the final origin-channel refactor, both debug APKs, both minified internal-test APKs and the Play internal-test AAB built; both flavor unit suites and debug/internal-test lints passed
 - Android standalone Java navigation policy **49 assertions passed**. Sensitive purchase/account messages use an exact-origin, main-frame-only WebMessage channel; Stripe checkout remains blocked in every Android flavor
 - Release/AAB signing and Play configuration checks fail closed when private signing/backend/Product configuration is absent
 - Reproducible DOM-state tests cover account interruption/owner isolation and the delayed-payment UI before redirect parsing

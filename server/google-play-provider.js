@@ -3,6 +3,7 @@
 const {GoogleAuth}=require('google-auth-library');
 
 const API='https://androidpublisher.googleapis.com/androidpublisher/v3/applications';
+const PLAY_PACKAGE='com.groves.rtb';
 const enc=encodeURIComponent;
 
 function googlePlayProvider(config={}) {
@@ -10,7 +11,7 @@ function googlePlayProvider(config={}) {
   const productIds=config.productIds||{supporter_pack:process.env.GOOGLE_PLAY_PRODUCT_SUPPORTER_PACK||''};
   const audience=config.audience||process.env.RTB_GOOGLE_PLAY_PUBSUB_AUDIENCE||'';
   const pushServiceAccount=config.pushServiceAccount||process.env.RTB_GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT||'';
-  const configured=process.env.RTB_GOOGLE_PLAY_ENABLED==='1'&&/^com\.[a-z0-9_.]+$/.test(packageName)&&Object.values(productIds).every(id=>/^[a-z0-9_.]+$/.test(id))&&/^https:\/\//.test(audience)&&/^[^@\s]+@[^@\s]+$/.test(pushServiceAccount);
+  const configured=process.env.RTB_GOOGLE_PLAY_ENABLED==='1'&&packageName===PLAY_PACKAGE&&Object.values(productIds).every(id=>/^[a-z0-9_.]+$/.test(id))&&/^https:\/\//.test(audience)&&/^[^@\s]+@[^@\s]+$/.test(pushServiceAccount);
   if(!config.provider&&!configured)return {enabled:false,packageName,productIds};
   if(config.provider)return {enabled:true,packageName,productIds,audience,pushServiceAccount,...config.provider};
 

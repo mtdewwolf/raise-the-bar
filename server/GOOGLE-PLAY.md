@@ -19,7 +19,7 @@ No Play Console product, service account, credential, Pub/Sub topic, legal agree
 All values are required before `playBillingEnabled` becomes true:
 
 - `RTB_GOOGLE_PLAY_ENABLED=1`
-- `RTB_GOOGLE_PLAY_PACKAGE=com.raisethebar.game`
+- `RTB_GOOGLE_PLAY_PACKAGE=com.groves.rtb` (the fixed Play Console application ID)
 - `GOOGLE_PLAY_PRODUCT_SUPPORTER_PACK=<active Play one-time product ID>`
 - `RTB_GOOGLE_PLAY_PUBSUB_AUDIENCE=https://<exact public RTDN endpoint audience>`
 - `RTB_GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT=<exact Pub/Sub push identity email>`
@@ -35,8 +35,9 @@ Before an internal Play test, the owner still must:
 2. Configure RTDN for one-time products and voided purchases, an authenticated Pub/Sub push subscription, exact OIDC audience/service-account allowlist, retry policy, and monitoring. Confirm the six-hour reconciliation works against the real API.
 3. Supply private Play App Signing/upload signing and build the `playStoreRelease` AAB. Release builds fail closed without approved private signing. Never upload the public repository test certificate.
 4. Exercise a real license-tester device flow: localized offer, purchase, pending completion/cancel, app/process restart, reinstall/restore, acknowledgement, duplicate callbacks, refund/revoke, offline recovery, account mismatch and RTDN retries. Current automated tests use offline adapters only.
-5. Publish an in-app account-deletion request flow and a public web deletion-request resource before launch. No autonomous hard-delete was added because retention, fraud/ledger tombstones and verified deletion policy require owner/legal decisions.
-6. Complete owner review of the privacy policy, Data Safety declarations, refunds/support terms and applicable tax/legal requirements. If this is a personal developer account created after2023-11-13, determine whether Google's closed-test requirement (currently12testers for14continuous days) applies.
+5. Publish an in-app account-deletion request flow, public web deletion-request resource, and public privacy-policy link before launch. None exists in the current app. No autonomous hard-delete was added because retention, fraud/ledger tombstones and verified deletion policy require owner/legal decisions.
+6. Review the user-generated-content policy boundary: player-selected names appear on public leaderboards and challenges. A profanity filter exists, but user reporting, blocking, and Terms acceptance do not. Resolve that policy gap before release if Google treats the feature as UGC.
+7. Complete the Play content-rating questionnaire with the actual presentation, including the default-on stylized blood effect. Complete owner review of Data Safety, refunds/support terms and applicable tax/legal requirements. Separately determine the software-encryption/export classification; this repository audit does not certify an ECCN, license exception, or export authorization. If this is a personal developer account created after2023-11-13, determine whether Google's closed-test requirement (currently12testers for14continuous days) applies.
 
 Google Play currently requires new phone/tablet submissions and updates to target Android16/API36. The project is configured for API36 and Billing9.1.0, but Play Console acceptance, internal testing, device behavior and policy review remain unverified.
 

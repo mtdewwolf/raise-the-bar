@@ -56,6 +56,11 @@ be uploaded to a production Play track.
 require the four private signing settings below; the Play Store release also
 requires fixed `RTB_API` and `RTB_PLAY_SUPPORTER_PRODUCT` values:
 
+The Play Store release application ID is the existing Console identity
+`com.groves.rtb`. The direct/sideload release stays `com.raisethebar.game` for
+compatibility. Debug and internal-test builds use `.debug` and `.internaltest`
+suffixes so public-key test artifacts cannot replace either release install.
+
 - `RTB_KEYSTORE_FILE`
 - `RTB_KEYSTORE_PASSWORD`
 - `RTB_KEY_ALIAS`

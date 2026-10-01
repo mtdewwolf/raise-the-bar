@@ -110,6 +110,9 @@ android {
         }
         playStore {
             dimension 'distribution'
+            // Permanent Play Console identity. Keep the Java namespace and direct-install
+            // application ID unchanged so existing sideload installs remain a separate app.
+            applicationId 'com.groves.rtb'
             buildConfigField 'boolean', 'PLAY_BILLING_ENABLED', 'true'
         }
     }
@@ -137,6 +140,7 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.test
+            applicationIdSuffix '.debug'
             versionNameSuffix '-debug'
             resValue 'string', 'app_name', 'Raising the Bar (Debug)'
         }
@@ -150,6 +154,7 @@ android {
             initWith release
             matchingFallbacks = ['release']
             signingConfig signingConfigs.test
+            applicationIdSuffix '.internaltest'
             versionNameSuffix '-internal-test'
             resValue 'string', 'app_name', 'Raising the Bar (Test)'
         }
