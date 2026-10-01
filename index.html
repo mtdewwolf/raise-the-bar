@@ -2182,6 +2182,12 @@ if (typeof document !== 'undefined') (function boot() {
     const catalog = await api('GET', '/api/shop'); shopCatalog = catalog;
     if (!testOfferReady(catalog)) throw new Error('Test checkout is disabled or the test offer changed.');
     const checkout = await api('POST', '/api/shop/checkout', { sku: 'supporter_pack', channel: 'web' }, true);
+    if (checkout.state === 'processing') {
+      accountMessage('Payment is still processing. No second checkout was opened; refresh purchases after Stripe finishes.');
+      return;
+    }
+    if (checkout.state === 'paid') { await restorePurchases(); return; }
+    if (checkout.state !== 'checkout' || typeof checkout.url !== 'string') throw new Error('Checkout is not ready. Refresh purchases before retrying.');
     const url = new URL(checkout.url);
     if (url.protocol !== 'https:' || url.hostname !== 'checkout.stripe.com' || url.username || url.password) throw new Error('The server returned an untrusted checkout address.');
     accountMessage('Opening Stripe sandbox checkout. Use test payment details only.');
