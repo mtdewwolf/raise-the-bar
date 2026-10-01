@@ -1,0 +1,6 @@
+package_name("com.groves.rtb")
+
+# Authentication deliberately comes from Application Default Credentials.
+# GitHub Actions creates a short-lived external-account credential with OIDC;
+# local operators may point GOOGLE_APPLICATION_CREDENTIALS at a private JSON
+# file outside this repository. Never commit a credential or key here.

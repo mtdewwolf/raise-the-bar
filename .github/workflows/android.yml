@@ -2,9 +2,21 @@ name: Android APK
 
 on:
   push:
-    paths: ['index.html', 'android/**', '.github/workflows/android.yml']
+    paths:
+      - index.html
+      - android/**
+      - Gemfile
+      - .ruby-version
+      - fastlane/**
+      - .github/workflows/android.yml
   pull_request:
-    paths: ['index.html', 'android/**', '.github/workflows/android.yml']
+    paths:
+      - index.html
+      - android/**
+      - Gemfile
+      - .ruby-version
+      - fastlane/**
+      - .github/workflows/android.yml
   workflow_dispatch:
     inputs:
       build_signed_play_release:
@@ -12,8 +24,37 @@ on:
         required: true
         default: false
         type: boolean
+      publish_internal:
+        description: Upload the signed AAB to Play internal testing (requires first manual Console upload and WIF)
+        required: true
+        default: false
+        type: boolean
+      play_release_status:
+        description: Play internal release status (used only when publish_internal is enabled)
+        required: true
+        default: draft
+        type: choice
+        options:
+          - draft
+          - completed
+
+permissions:
+  contents: read
 
 jobs:
+  fastlane-config:
+    runs-on: ubuntu-latest
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_HIDE_CHANGELOG: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+      - name: Validate pinned fastlane configuration
+        run: bundle exec fastlane lanes
+
   build:
     runs-on: ubuntu-latest
     defaults:
@@ -41,7 +82,7 @@ jobs:
             android/app/build/outputs/bundle/playStoreInternalTest/app-playStore-internalTest.aab
 
   signed-play-release:
-    if: github.event_name == 'workflow_dispatch' && inputs.build_signed_play_release
+    if: github.event_name == 'workflow_dispatch' && (inputs.build_signed_play_release || inputs.publish_internal)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -81,3 +122,54 @@ jobs:
         if: always()
         shell: bash
         run: rm -f "$RUNNER_TEMP/rtb-upload.jks"
+
+  publish-play-internal:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_internal
+    needs:
+      - build
+      - fastlane-config
+      - signed-play-release
+    runs-on: ubuntu-latest
+    environment: play-internal
+    concurrency:
+      group: play-internal-publish
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_HIDE_CHANGELOG: "1"
+      RTB_PLAY_WIF_PROVIDER: ${{ vars.RTB_PLAY_WIF_PROVIDER }}
+      RTB_PLAY_PUBLISHER_SERVICE_ACCOUNT: ${{ vars.RTB_PLAY_PUBLISHER_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require default branch and Workload Identity configuration
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" || {
+            echo "Play publishing is allowed only from the default branch." >&2
+            exit 1
+          }
+          : "${RTB_PLAY_WIF_PROVIDER:?Missing play-internal variable RTB_PLAY_WIF_PROVIDER}"
+          : "${RTB_PLAY_PUBLISHER_SERVICE_ACCOUNT:?Missing play-internal variable RTB_PLAY_PUBLISHER_SERVICE_ACCOUNT}"
+      - uses: actions/download-artifact@v5
+        with:
+          name: raising-the-bar-play-release
+          path: android/app/build/outputs/bundle/playStoreRelease
+      - name: Verify signed AAB artifact
+        shell: bash
+        run: test -s android/app/build/outputs/bundle/playStoreRelease/app-playStore-release.aab
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.RTB_PLAY_WIF_PROVIDER }}
+          service_account: ${{ env.RTB_PLAY_PUBLISHER_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+      - name: Publish AAB to internal testing only
+        run: bundle exec fastlane android publish_internal release_status:${{ inputs.play_release_status }}

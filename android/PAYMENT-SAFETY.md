@@ -76,6 +76,13 @@ ordinary pushes or pull requests. Prefer Google Play App Signing with a
 separate upload key. Creating that key and adding these secrets are deliberate
 owner actions and are not performed by this repository.
 
+After the mandatory first Play Console upload, the same manual workflow can
+optionally send the signed AAB only to the internal-testing track with fastlane
+and short-lived GitHub OIDC credentials. This publisher identity is separate
+from the backend runtime billing identity and is intended to receive no
+production, financial, policy, or store-listing permission. See
+[Google Play internal publishing](PLAY-PUBLISHING.md).
+
 Release validation rejects missing configuration, missing/unreadable keys, and
 the public test certificate even if its keystore has been renamed or copied.
 There is no test-key fallback. Keep private keys and passwords out of the repo.
