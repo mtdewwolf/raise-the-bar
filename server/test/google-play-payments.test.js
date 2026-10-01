@@ -67,6 +67,25 @@ test('authenticated RTDN is authoritative, deduplicated and revokes only the Pla
   assert.equal((await rtdn(event,'void-2')).status,200);me=(await call('GET','/api/me',undefined,player.token)).body;assert.ok(!me.inventory.some(item=>item.id==='supporter'));assert.equal(me.look.band,'yellow');
 },{dbFile})));
 
+test('authenticated Play test notifications are acknowledged without purchase processing',()=>onDisk(dbFile=>withApp(async({call,register,rtdn,fake})=>{
+  const player=await register(),purchaseToken=fake.set(5,'fixture','PURCHASED'),before=fake.gets;
+  const testEvent={packageName:PACKAGE,testNotification:{version:'1.0'}};
+  assert.equal((await rtdn(testEvent,'test-no-auth','wrong')).status,401);
+  assert.equal((await rtdn({...testEvent,packageName:'com.attacker.app'},'test-bad-package')).status,400);
+  assert.equal((await rtdn({packageName:PACKAGE,testNotification:{version:'2.0'}},'test-bad-version')).status,400);
+  assert.equal((await rtdn({...testEvent,oneTimeProductNotification:{notificationType:1,purchaseToken,sku:PRODUCT}},'test-mixed')).status,400);
+  assert.equal((await rtdn(testEvent,'test-1')).status,200);
+  assert.equal((await rtdn(testEvent,'test-1')).status,200);
+  assert.equal(fake.gets,before);
+  let me=(await call('GET','/api/me',undefined,player.token)).body;
+  assert.ok(!me.inventory.some(item=>item.id==='supporter'));
+  const opened=openDb(dbFile);const eventTypes=opened.db.prepare('SELECT type FROM google_play_events ORDER BY id').all().map(row=>row.type);opened.db.close();assert.deepEqual(eventTypes,['test']);
+
+  const realEvent={packageName:PACKAGE,oneTimeProductNotification:{notificationType:1,purchaseToken,sku:PRODUCT}};
+  assert.equal((await rtdn(realEvent,'purchase-1')).status,200);assert.equal(fake.gets,before+1);
+  me=(await call('GET','/api/me',undefined,player.token)).body;assert.ok(me.inventory.some(item=>item.id==='supporter'));
+},{dbFile})));
+
 test('Google Play is disabled without the complete server verification configuration',async()=>{
   const app=createApp({dbFile:':memory:',pool:{close:async()=>{}}});await new Promise(resolve=>app.listen(0,resolve));
   try{const shop=await fetch('http://127.0.0.1:'+app.address().port+'/api/shop').then(response=>response.json());assert.equal(shop.playBillingEnabled,false);}finally{await app.closeAll();}
@@ -79,5 +98,22 @@ test('production Google Play configuration accepts only the permanent Console pa
     Object.assign(process.env,{RTB_GOOGLE_PLAY_ENABLED:'1',GOOGLE_PLAY_PRODUCT_SUPPORTER_PACK:PRODUCT,RTB_GOOGLE_PLAY_PUBSUB_AUDIENCE:'https://fixture.invalid/api/payments/google-play/rtdn',RTB_GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT:'push@fixture.invalid'});
     process.env.RTB_GOOGLE_PLAY_PACKAGE='com.attacker.app';assert.equal(googlePlayProvider().enabled,false);
     process.env.RTB_GOOGLE_PLAY_PACKAGE=PACKAGE;assert.equal(googlePlayProvider().enabled,true);
+  }finally{for(const name of names)if(prior[name]===undefined)delete process.env[name];else process.env[name]=prior[name];}
+});
+
+test('production Pub/Sub verification uses OIDC audience and verified service-account identity',async()=>{
+  const names=['RTB_GOOGLE_PLAY_ENABLED','RTB_GOOGLE_PLAY_PACKAGE','GOOGLE_PLAY_PRODUCT_SUPPORTER_PACK','RTB_GOOGLE_PLAY_PUBSUB_AUDIENCE','RTB_GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT'];
+  const prior=Object.fromEntries(names.map(name=>[name,process.env[name]])),audience='https://fixture.invalid/api/payments/google-play/rtdn',email='push@fixture.invalid';
+  try{
+    Object.assign(process.env,{RTB_GOOGLE_PLAY_ENABLED:'1',RTB_GOOGLE_PLAY_PACKAGE:PACKAGE,GOOGLE_PLAY_PRODUCT_SUPPORTER_PACK:PRODUCT,RTB_GOOGLE_PLAY_PUBSUB_AUDIENCE:audience,RTB_GOOGLE_PLAY_PUBSUB_SERVICE_ACCOUNT:email});
+    const payloads={valid:{email,email_verified:true},unverified:{email,email_verified:false},wrong_identity:{email:'attacker@fixture.invalid',email_verified:true}};
+    const calls=[],oidcClient={verifyIdToken:async options=>{calls.push(options);if(options.idToken==='wrong_audience')throw new Error('Wrong recipient');return {getPayload:()=>payloads[options.idToken]};}};
+    const developerAuth={verifyIdToken:()=>{throw new Error('Developer API auth must not verify OIDC tokens');},getClient:async()=>({request:async()=>({data:{}})})};
+    const play=googlePlayProvider({auth:developerAuth,oidcClient});
+    assert.equal((await play.verifyPushToken('valid')).email,email);
+    await assert.rejects(play.verifyPushToken('wrong_audience'),/Wrong recipient/);
+    await assert.rejects(play.verifyPushToken('unverified'),/Unexpected Pub\/Sub identity/);
+    await assert.rejects(play.verifyPushToken('wrong_identity'),/Unexpected Pub\/Sub identity/);
+    assert.deepEqual(calls.map(call=>call.audience),[audience,audience,audience,audience]);
   }finally{for(const name of names)if(prior[name]===undefined)delete process.env[name];else process.env[name]=prior[name];}
 });
