@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup for Android 11 and older (API 30 and below). Android 12+ uses data_extraction_rules.xml. -->
+<full-backup-content>
+    <!--
+      The game keeps the profile bearer token (localStorage rtb_profile) in the WebView
+      profile, along with the wallet, pending runs, friend queue, cosmetics, and rtb_api.
+      Backup rules cannot drop a single localStorage key, so the whole WebView store stays
+      out of cloud backup. Progress is meant to move with the sync code, not a device backup.
+    -->
+    <exclude domain="root" path="app_webview" />
+    <exclude domain="sharedpref" path="WebViewChromiumPrefs.xml" />
+    <exclude domain="database" path="webview.db" />
+    <exclude domain="database" path="webviewCache.db" />
+</full-backup-content>

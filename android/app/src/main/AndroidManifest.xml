@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Haptic buzzes on slips and falls (navigator.vibrate in the game). -->
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -8,7 +9,10 @@
 
     <application
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
+        tools:targetApi="33"
         android:usesCleartextTraffic="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
@@ -16,7 +20,9 @@
         android:theme="@style/Theme.RaisingTheBar">
 
         <!-- Folding, unfolding, split screen and pop-up view all resize the window in place
-             (no restart), so a run survives moving between the cover and inner screens. -->
+             (no restart), so a run survives moving between the cover and inner screens.
+             fullUser follows the user's rotation, including reverse landscape. It is not a
+             portrait or landscape lock (those are ignored on large screens at targetSdk 36). -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -28,12 +34,21 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Open shared challenge links (…/raise-the-bar/#r=…) in the app. -->
-            <intent-filter>
+            <!-- Replay links keep the share path, e.g. https://host/raise-the-bar/#r=… -->
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="${shareHost}" android:pathPrefix="${sharePath}" />
+            </intent-filter>
+            <!-- Friend invites are host-root /challenge/<code> (index.html friendUrl and the server).
+                 A leading slash in that URL drops a project subpath, so this filter is separate
+                 from the share path above. Verified links need assetlinks.json; see PLAY_APP_SIGNING.md. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${shareHost}" android:pathPrefix="/challenge/" />
             </intent-filter>
         </activity>
     </application>

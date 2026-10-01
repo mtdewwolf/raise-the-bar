@@ -134,6 +134,9 @@ android {
             storePassword releaseSigning.RTB_KEYSTORE_PASSWORD
             keyAlias releaseSigning.RTB_KEY_ALIAS
             keyPassword releaseSigning.RTB_KEY_PASSWORD
+            enableV1Signing false
+            enableV2Signing true
+            enableV3Signing true
         }
     }
 
