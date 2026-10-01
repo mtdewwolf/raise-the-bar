@@ -1,6 +1,7 @@
 package com.raisethebar.game;
 
 import android.app.Activity;
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.graphics.Rect;
 import android.net.Uri;
@@ -22,7 +23,10 @@ import android.window.OnBackInvokedDispatcher;
 
 import androidx.core.content.ContextCompat;
 import androidx.core.util.Consumer;
+import androidx.webkit.WebMessageCompat;
+import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewAssetLoader;
+import androidx.webkit.WebViewFeature;
 import androidx.window.java.layout.WindowInfoTrackerCallbackAdapter;
 import androidx.window.layout.DisplayFeature;
 import androidx.window.layout.FoldingFeature;
@@ -35,6 +39,8 @@ import java.util.Collections;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.json.JSONObject;
+
 /**
  * Hosts the browser game (index.html, copied into assets at build time) in a full-screen WebView.
  * The game is served from https://appassets.androidplatform.net so it gets a secure origin with
@@ -42,7 +48,8 @@ import java.util.regex.Pattern;
  */
 public class MainActivity extends Activity {
 
-    private static final String GAME_URL = "https://" + WebViewAssetLoader.DEFAULT_DOMAIN + "/assets/index.html";
+    private static final String GAME_ORIGIN = "https://" + WebViewAssetLoader.DEFAULT_DOMAIN;
+    private static final String GAME_URL = GAME_ORIGIN + "/assets/index.html";
     private static final Pattern REPLAY_CODE = Pattern.compile("(?:^|&)(r=[A-Za-z0-9_-]+|c=[A-Fa-f0-9]{12})(?:&|$)");
 
     private WebView webView;
@@ -51,6 +58,7 @@ public class MainActivity extends Activity {
     private final Consumer<WindowLayoutInfo> layoutListener = this::onWindowLayout;
     private String foldArgs = "null"; // last hinge position sent to the game
     private long lastRendererLoss;
+    private PlayBillingManager playBilling;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,6 +71,23 @@ public class MainActivity extends Activity {
 
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
         createWebView();
+        playBilling = new PlayBillingManager(this, new PlayBillingManager.Listener() {
+            @Override
+            public void onBillingUpdate(String state, String message, String formattedPrice) {
+                sendBillingUpdate(state, message, formattedPrice);
+            }
+
+            @Override
+            public void onEntitlementsChanged() {
+                runOnUiThread(() -> {
+                    if (webView != null) {
+                        webView.evaluateJavascript(
+                                "window.rtbPlayBillingEntitlementsChanged&&window.rtbPlayBillingEntitlementsChanged()",
+                                null);
+                    }
+                });
+            }
+        });
         enterImmersive(); // needs the decor view that setContentView creates (crashes before it on Android 11+)
         windowInfo = new WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(this));
 
@@ -96,6 +121,16 @@ public class MainActivity extends Activity {
         s.setTextZoom(100);                      // ignore the system font size; the HUD is laid out in px
 
         webView.addJavascriptInterface(new GameBridge(), "RTBAndroid");
+        if (BuildConfig.PLAY_BILLING_ENABLED
+                && WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(webView, "RTBPlayBilling",
+                    Collections.singleton(GAME_ORIGIN),
+                    (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
+                        if (!isMainFrame || !isGameOrigin(sourceOrigin)
+                                || message.getType() != WebMessageCompat.TYPE_STRING) return;
+                        handlePlayBillingMessage(message.getData());
+                    });
+        }
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -108,6 +143,11 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 sendFold();
+                if (BuildConfig.PLAY_BILLING_ENABLED) {
+                    view.evaluateJavascript("(function(){if(document.getElementById('rtb-play-billing-bridge'))return;"
+                            + "var s=document.createElement('script');s.id='rtb-play-billing-bridge';"
+                            + "s.src='/assets/play-billing-bridge.js';document.head.appendChild(s)})()", null);
+                }
             }
 
             @Override
@@ -181,6 +221,7 @@ public class MainActivity extends Activity {
 
     @Override
     @SuppressWarnings("deprecation")
+    @SuppressLint("GestureBackNavigation") // API 33+ is handled by the registered OnBackInvokedCallback above.
     public void onBackPressed() {
         handleBack(); // Android 12L and older; newer versions use the OnBackInvokedCallback above
     }
@@ -189,6 +230,30 @@ public class MainActivity extends Activity {
         byte[] message = "Web checkout is unavailable in this Android app.".getBytes(StandardCharsets.UTF_8);
         return new WebResourceResponse("text/plain", "UTF-8", 403, "Forbidden",
                 Collections.emptyMap(), new ByteArrayInputStream(message));
+    }
+
+    private static boolean isGameOrigin(Uri origin) {
+        return origin != null
+                && "https".equalsIgnoreCase(origin.getScheme())
+                && WebViewAssetLoader.DEFAULT_DOMAIN.equalsIgnoreCase(origin.getHost())
+                && origin.getPort() == -1;
+    }
+
+    private void handlePlayBillingMessage(String raw) {
+        if (raw == null || raw.length() > 10_000) return;
+        try {
+            JSONObject message = new JSONObject(raw);
+            String action = message.optString("action", "");
+            JSONObject account = message.optJSONObject("account");
+            String accountJson = account == null ? "{}" : account.toString();
+            runOnUiThread(() -> {
+                playBilling.syncAccount(accountJson);
+                if ("purchase".equals(action)) playBilling.purchase();
+                else if ("restore".equals(action)) playBilling.restore();
+            });
+        } catch (Exception ignored) {
+            // Malformed messages from the page fail closed and never reach BillingClient.
+        }
     }
 
     @SuppressWarnings("deprecation")
@@ -221,6 +286,7 @@ public class MainActivity extends Activity {
     protected void onStart() {
         super.onStart();
         windowInfo.addWindowLayoutInfoListener(this, ContextCompat.getMainExecutor(this), layoutListener);
+        playBilling.start();
     }
 
     @Override
@@ -264,6 +330,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         webView.onResume();
+        playBilling.start(); // catches completed pending purchases after returning to foreground
     }
 
     @Override
@@ -274,8 +341,24 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        playBilling.destroy();
         webView.destroy();
         super.onDestroy();
+    }
+
+    private void sendBillingUpdate(String state, String message, String formattedPrice) {
+        JSONObject update = new JSONObject();
+        try {
+            update.put("state", state);
+            update.put("message", message);
+            if (formattedPrice != null) update.put("formattedPrice", formattedPrice);
+        } catch (Exception ignored) {
+            return;
+        }
+        String script = "window.rtbPlayBillingUpdate&&window.rtbPlayBillingUpdate(" + update + ")";
+        runOnUiThread(() -> {
+            if (webView != null) webView.evaluateJavascript(script, null);
+        });
     }
 
     /** Exposed to the game as window.RTBAndroid. Called on a WebView background thread. */

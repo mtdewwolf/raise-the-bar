@@ -2,13 +2,20 @@
 const crypto=require('node:crypto');
 const path=require('node:path');
 const {PRODUCTS,DEFAULTS,earnedInventory}=require('./catalog');
+const {googlePlayProvider}=require('./google-play-provider');
 function payments({db,q,now,auth,account,profile,readJson,HttpError,limit,publicUrl,dbFile,options={}}){
   db.exec(`CREATE TABLE IF NOT EXISTS purchase_orders (
     id TEXT PRIMARY KEY, player_id INTEGER NOT NULL REFERENCES players(id), sku TEXT NOT NULL,
     amount INTEGER NOT NULL, currency TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
     session_id TEXT UNIQUE, payment_intent TEXT UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS purchase_player ON purchase_orders(player_id);
-    CREATE TABLE IF NOT EXISTS payment_events (id TEXT PRIMARY KEY, type TEXT NOT NULL, processed_at INTEGER NOT NULL);`);
+    CREATE TABLE IF NOT EXISTS payment_events (id TEXT PRIMARY KEY, type TEXT NOT NULL, processed_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS play_purchases (
+      token_hash TEXT PRIMARY KEY, purchase_token TEXT NOT NULL, player_id INTEGER NOT NULL REFERENCES players(id),
+      sku TEXT NOT NULL, product_id TEXT NOT NULL, package_name TEXT NOT NULL, obfuscated_account_id TEXT NOT NULL,
+      state TEXT NOT NULL, acknowledgement_state TEXT NOT NULL, order_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS play_purchase_player ON play_purchases(player_id);
+    CREATE TABLE IF NOT EXISTS google_play_events (id TEXT PRIMARY KEY, type TEXT NOT NULL, processed_at INTEGER NOT NULL);`);
   const addOrderColumn=(name,definition)=>{if(!db.prepare('PRAGMA table_info(purchase_orders)').all().some(c=>c.name===name))db.exec(`ALTER TABLE purchase_orders ADD COLUMN ${name} ${definition}`);};
   addOrderColumn('price_id','TEXT');
   addOrderColumn('product_id','TEXT');
@@ -20,13 +27,17 @@ function payments({db,q,now,auth,account,profile,readJson,HttpError,limit,public
   const testConfigured=process.env.RTB_PAYMENTS_MODE==='test'&&/^(?:sk|rk)_test_/.test(key)&&webhookSecret&&durable&&mapped&&/^https:\/\//.test(publicUrl||'');
   // Injection is only a createApp test fixture, never selected by HTTP or environment.
   const stripe=options.stripe||(testConfigured?new(require('stripe'))(key,{apiVersion:'2026-08-26.dahlia',maxNetworkRetries:2,timeout:15000}):null);
-  const enabled=!!stripe&&(!!options.stripe||!!testConfigured);
+  const stripeEnabled=!!stripe&&(!!options.stripe||!!testConfigured);
+  const play=googlePlayProvider(options.googlePlay||{}),playEnabled=play.enabled===true;
   const byId=db.prepare('SELECT * FROM purchase_orders WHERE id = ?');
   const orders=id=>db.prepare('SELECT * FROM purchase_orders WHERE player_id = ? ORDER BY created_at').all(id);
+  const playByToken=db.prepare('SELECT * FROM play_purchases WHERE token_hash = ?');
+  const playOrders=id=>db.prepare('SELECT * FROM play_purchases WHERE player_id = ? ORDER BY created_at').all(id);
   function inventory(p){
     let achievements;try{achievements=JSON.parse(p.achievements||'[]');}catch{achievements=[];}if(!Array.isArray(achievements))achievements=[];
     const result=earnedInventory(achievements);
     for(const row of orders(p.id))if(row.status==='paid'&&PRODUCTS[row.sku])result.push(...PRODUCTS[row.sku].items);
+    for(const row of playOrders(p.id))if(row.state==='granted'&&PRODUCTS[row.sku])result.push(...PRODUCTS[row.sku].items);
     return [...new Map(result.map(i=>[i.slot+':'+i.id,i])).values()];
   }
   function sanitizeLook(p){
@@ -42,9 +53,9 @@ function payments({db,q,now,auth,account,profile,readJson,HttpError,limit,public
       result[slot]=id;
     }return {...DEFAULTS,...result};
   }
-  const summary=p=>({inventory:inventory(p),purchases:orders(p.id).map(({sku,status})=>({sku,status})),look:sanitizeLook(p)});
+  const summary=p=>({inventory:inventory(p),purchases:[...orders(p.id).map(({sku,status})=>({sku,status,provider:'stripe'})),...playOrders(p.id).map(({sku,state})=>({sku,status:state,provider:'google_play'}))],look:sanitizeLook(p)});
   function requireAccount(req){const p=auth(req,true),info=account.info(p.id);if(!info||!info.recoveryConfirmed)throw new HttpError(403,'Save and confirm your account recovery code first');return p;}
-  function requireEnabled(){if(!enabled)throw new HttpError(503,'Test checkout is unavailable until durable storage and Stripe test mode are configured');}
+  function requireEnabled(){if(!stripeEnabled)throw new HttpError(503,'Test checkout is unavailable until durable storage, a fixed Price and Stripe test mode are configured');}
   const idOf=obj=>typeof obj==='string'?obj:obj&&obj.id;
   function integrationIdentifier(){
     const letters='abcdefghijklmnopqrstuvwxyz';let suffix='';
@@ -59,6 +70,61 @@ function payments({db,q,now,auth,account,profile,readJson,HttpError,limit,public
     if(price?.id!==configured||price.livemode!==false||price.active!==true||price.type!=='one_time'||price.recurring||price.unit_amount!==product.amount||price.currency!==product.currency||typeof providerProduct!=='object'||!/^prod_[A-Za-z0-9]+$/.test(providerProduct.id||'')||providerProduct.livemode!==false||providerProduct.active!==true||providerProduct.metadata?.sku!==product.sku)throw new HttpError(503,'Test checkout catalog does not match the approved offer');
     return {priceId:price.id,productId:providerProduct.id};
   }
+  const digest=value=>crypto.createHash('sha256').update(String(value)).digest('hex');
+  const expectedPlayAccountId=p=>digest('rtb-play:'+account.info(p.id).username);
+  const purchasedEntitlements=p=>{
+    const result=[];
+    for(const row of orders(p.id))if(row.status==='paid'&&PRODUCTS[row.sku])for(const item of PRODUCTS[row.sku].items)result.push(item.slot+':'+item.id);
+    for(const row of playOrders(p.id))if(row.state==='granted'&&PRODUCTS[row.sku])for(const item of PRODUCTS[row.sku].items)result.push(item.slot+':'+item.id);
+    return [...new Set(result)];
+  };
+  function validatePlayToken(value){if(typeof value!=='string'||value.length<20||value.length>4096||!/^[A-Za-z0-9._=\-]+$/.test(value))throw new HttpError(400,'Invalid Google Play purchase token');return value;}
+  function playOwner(obfuscated){
+    if(!/^[a-f0-9]{64}$/.test(obfuscated||''))return null;
+    for(const row of db.prepare('SELECT player_id,username FROM accounts').all())if(digest('rtb-play:'+row.username)===obfuscated)return q.playerById.get(row.player_id);
+    return null;
+  }
+  async function processPlayPurchase(token,suppliedPlayer,forceRevoked=false){
+    if(!playEnabled)throw new HttpError(503,'Google Play verification is not configured');
+    token=validatePlayToken(token);
+    const purchase=await play.getPurchase(play.packageName,token);
+    const lines=purchase?.productLineItem,state=purchase?.purchaseStateContext?.purchaseState,obfuscated=purchase?.obfuscatedExternalAccountId;
+    if(!Array.isArray(lines)||lines.length!==1)throw new HttpError(422,'Google Play purchase product mismatch');
+    const line=lines[0],sku=Object.keys(play.productIds).find(key=>play.productIds[key]===line.productId);
+    if(!sku||!PRODUCTS[sku]||line.productOfferDetails?.quantity!==1||line.productOfferDetails?.consumptionState!=='CONSUMPTION_STATE_YET_TO_BE_CONSUMED')throw new HttpError(422,'Google Play purchase product mismatch');
+    const owner=suppliedPlayer||playOwner(obfuscated);
+    if(!owner||obfuscated!==expectedPlayAccountId(owner))throw new HttpError(422,'Google Play account identity mismatch');
+    const tokenHash=digest(token),existing=playByToken.get(tokenHash);
+    if(existing&&existing.player_id!==owner.id)throw new HttpError(409,'Google Play purchase is already bound to another account');
+    const refunded=Number(line.productOfferDetails.refundableQuantity)<Number(line.productOfferDetails.quantity);
+    const providerRevoked=forceRevoked||state==='CANCELLED'||refunded;
+    if(!providerRevoked&&!['PURCHASED','PENDING'].includes(state))throw new HttpError(422,'Google Play purchase state is invalid');
+    if(state==='PURCHASED'&&!providerRevoked&&(!purchase.purchaseCompletionTime||!Number.isFinite(Date.parse(purchase.purchaseCompletionTime))))throw new HttpError(422,'Google Play purchase completion is invalid');
+    const nextState=existing?.state==='revoked'||providerRevoked?'revoked':state==='PURCHASED'?'granted':'pending';
+    const ack=purchase.acknowledgementState==='ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED'?'acknowledged':'pending';
+    account.transaction(()=>{
+      const current=playByToken.get(tokenHash);
+      if(current&&current.player_id!==owner.id)throw new HttpError(409,'Google Play purchase is already bound to another account');
+      const terminal=current?.state==='revoked'?'revoked':nextState;
+      db.prepare(`INSERT INTO play_purchases (token_hash,purchase_token,player_id,sku,product_id,package_name,obfuscated_account_id,state,acknowledgement_state,order_id,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(token_hash) DO UPDATE SET state=excluded.state, acknowledgement_state=CASE WHEN play_purchases.acknowledgement_state='acknowledged' THEN 'acknowledged' ELSE excluded.acknowledgement_state END, order_id=COALESCE(excluded.order_id,play_purchases.order_id), updated_at=excluded.updated_at`)
+        .run(tokenHash,token,owner.id,sku,line.productId,play.packageName,obfuscated,terminal,ack,purchase.orderId||null,current?.created_at||now(),now());
+      const p=q.playerById.get(owner.id);q.setLook.run(JSON.stringify(sanitizeLook(p)),p.id);
+    });
+    let row=playByToken.get(tokenHash);
+    if(row.state==='granted'&&row.acknowledgement_state!=='acknowledged'){
+      try{await play.acknowledge(play.packageName,row.product_id,token);db.prepare("UPDATE play_purchases SET acknowledgement_state='acknowledged', updated_at=? WHERE token_hash=? AND state='granted'").run(now(),tokenHash);}catch{/* The durable token is retried by restore, RTDN or authenticated reconciliation. */}
+      row=playByToken.get(tokenHash);
+    }
+    const current=q.playerById.get(owner.id);
+    return {purchaseVerified:row.state==='granted',state:row.state,acknowledged:row.acknowledgement_state==='acknowledged',entitlements:purchasedEntitlements(current)};
+  }
+  async function reconcileKnownPlayPurchases(playerId){
+    if(!playEnabled)return;
+    const rows=playerId?playOrders(playerId):db.prepare("SELECT * FROM play_purchases WHERE state IN ('pending','granted') OR acknowledgement_state != 'acknowledged'").all();
+    for(const row of rows){try{await processPlayPurchase(row.purchase_token,q.playerById.get(row.player_id));}catch{/* Keep the durable row for the next authenticated, RTDN or periodic retry. */}}
+  }
+  const playReconcileTimer=playEnabled?setInterval(()=>{void reconcileKnownPlayPurchases();},6*3600000).unref():null;
   async function reconcile(order,suppliedSession){
     const sessionId=suppliedSession||order.session_id;if(!sessionId)return;
     const session=await stripe.checkout.sessions.retrieve(sessionId,{expand:['payment_intent.latest_charge','line_items.data.price.product']});
@@ -109,8 +175,31 @@ function payments({db,q,now,auth,account,profile,readJson,HttpError,limit,public
     }
     db.prepare('INSERT OR IGNORE INTO payment_events VALUES (?,?,?)').run(event.id,event.type,now());return {received:true};
   }
+  async function googlePlayWebhook(req){
+    if(!playEnabled)throw new HttpError(503,'Google Play verification is not configured');
+    const match=/^Bearer\s+(.+)$/i.exec(req.headers.authorization||'');
+    if(!match)throw new HttpError(401,'Invalid Pub/Sub identity');
+    try{await play.verifyPushToken(match[1]);}catch{throw new HttpError(401,'Invalid Pub/Sub identity');}
+    const envelope=await readJson(req),message=envelope?.message;
+    if(typeof message?.messageId!=='string'||!/^[A-Za-z0-9_-]{1,200}$/.test(message.messageId)||typeof message.data!=='string'||message.data.length>128*1024||!/^[A-Za-z0-9+/]*={0,2}$/.test(message.data))throw new HttpError(400,'Invalid Pub/Sub message');
+    const eventId='google:'+message.messageId;
+    if(db.prepare('SELECT id FROM google_play_events WHERE id = ?').get(eventId))return {received:true};
+    let event;
+    try{event=JSON.parse(Buffer.from(message.data,'base64').toString('utf8'));}catch{throw new HttpError(400,'Invalid Google Play notification');}
+    if(event?.packageName!==play.packageName)throw new HttpError(400,'Unexpected Google Play package');
+    const oneTime=event.oneTimeProductNotification,voided=event.voidedPurchaseNotification;
+    if(oneTime){
+      if(![1,2].includes(oneTime.notificationType)||!Object.values(play.productIds).includes(oneTime.sku))throw new HttpError(400,'Unexpected Google Play notification');
+      await processPlayPurchase(oneTime.purchaseToken,null,false);
+    }else if(voided){
+      if(voided.productType!==2)throw new HttpError(400,'Unexpected Google Play notification');
+      await processPlayPurchase(voided.purchaseToken,null,true);
+    }else throw new HttpError(400,'Unsupported Google Play notification');
+    db.prepare('INSERT OR IGNORE INTO google_play_events VALUES (?,?,?)').run(eventId,oneTime?'one_time':'voided',now());
+    return {received:true};
+  }
   const routes={
-    'GET /api/shop':()=>({mode:enabled?'test':'disabled',checkoutEnabled:enabled,items:Object.values(PRODUCTS)}),
+    'GET /api/shop':()=>({mode:stripeEnabled?'test':'disabled',checkoutEnabled:stripeEnabled,playBillingEnabled:playEnabled,items:Object.values(PRODUCTS)}),
     'POST /api/shop/checkout':async(req,ip)=>{
       const p=requireAccount(req);limit('checkout:'+p.id,6,60000);const body=await readJson(req);requireEnabled();
       if(body.channel!=='web'||/RaisingTheBarAndroid|; wv\)/i.test(req.headers['user-agent']||'')||req.headers['x-rtb-platform']==='android')throw new HttpError(403,'Native purchases are not available');
@@ -140,9 +229,20 @@ function payments({db,q,now,auth,account,profile,readJson,HttpError,limit,public
       if(state==='processing'||state==='paid')return {state};
       throw new HttpError(502,'Checkout is unavailable; refresh purchases before retrying');
     },
-    'POST /api/shop/restore':async req=>{const p=auth(req,true);limit('restore:'+p.id,6,60000);if(enabled)for(const order of orders(p.id))if(order.session_id)await reconcile(order);return profile(q.playerById.get(p.id));},
+    'POST /api/shop/restore':async req=>{const p=auth(req,true);limit('restore:'+p.id,6,60000);if(stripeEnabled)for(const order of orders(p.id))if(order.session_id)await reconcile(order);return profile(q.playerById.get(p.id));},
     'POST /api/payments/stripe/webhook':webhook,
+    'POST /api/shop/google-play/verify':async(req)=>{
+      const p=requireAccount(req);limit('play-verify:'+p.id,12,60000);const body=await readJson(req);
+      if(Object.keys(body).some(k=>!['sku','productId','purchaseToken','packageName'].includes(k))||body.sku!=='supporter_pack'||body.productId!==play.productIds.supporter_pack||body.packageName!==play.packageName)throw new HttpError(400,'Unknown Google Play product or package');
+      return processPlayPurchase(body.purchaseToken,p);
+    },
+    'POST /api/shop/google-play/reconcile':async req=>{
+      const p=requireAccount(req);limit('play-reconcile:'+p.id,6,60000);if(!playEnabled)throw new HttpError(503,'Google Play verification is not configured');
+      await reconcileKnownPlayPurchases(p.id);
+      return {purchaseVerified:purchasedEntitlements(q.playerById.get(p.id)).length>0,entitlements:purchasedEntitlements(q.playerById.get(p.id)),profile:profile(q.playerById.get(p.id))};
+    },
+    'POST /api/payments/google-play/rtdn':googlePlayWebhook,
   };
-  return {routes,summary,validateLook,sanitizeLook};
+  return {routes,summary,validateLook,sanitizeLook,close:()=>{if(playReconcileTimer)clearInterval(playReconcileTimer);}};
 }
 module.exports={payments};

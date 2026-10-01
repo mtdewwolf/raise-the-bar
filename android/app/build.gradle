@@ -5,9 +5,13 @@ plugins {
 // The game itself lives in ../index.html (the same file the browser version uses).
 // It's copied into the APK's assets at build time so there is only one copy to maintain.
 def gameAssetsDir = layout.buildDirectory.dir('generated/gameAssets')
-// Leaderboard server: ./gradlew assembleRelease -PrtbApi=https://your-server (or RTB_API env var).
+// Leaderboard server: ./gradlew bundlePlayStoreRelease -PrtbApi=https://your-server (or RTB_API env var).
 // Without it the app still plays fully offline, just with no online leaderboards.
 def rtbApi = (project.findProperty('rtbApi') ?: System.getenv('RTB_API') ?: '').toString().trim()
+// Permanent, non-consumable product configured separately in Play Console. There is deliberately
+// no checked-in fallback: an unconfigured Play build must not display or launch a purchase.
+def playSupporterProduct = (project.findProperty('rtbPlaySupporterProduct') ?:
+        System.getenv('RTB_PLAY_SUPPORTER_PRODUCT') ?: '').toString().trim()
 def copyGame = tasks.register('copyGame', Copy) {
     from rootProject.file('../index.html')
     into gameAssetsDir
@@ -34,7 +38,7 @@ def validateReleaseSigning = tasks.register('validateReleaseSigning') {
         def missing = releaseSigning.findAll { name, value -> !value?.trim() }.keySet()
         if (missing) {
             throw new GradleException('Release requires private signing configuration: ' + missing.join(', ') +
-                    '. For a public-key test APK use assembleInternalTest instead.')
+                    '. For a public-key test artifact use bundlePlayStoreInternalTest instead.')
         }
         def keyFile = file(releaseSigning.RTB_KEYSTORE_FILE)
         if (!keyFile.isFile() || keyFile.canonicalFile == file('test-signing.keystore').canonicalFile) {
@@ -56,16 +60,31 @@ def validateReleaseSigning = tasks.register('validateReleaseSigning') {
     }
 }
 
+def validatePlayStoreConfiguration = tasks.register('validatePlayStoreConfiguration') {
+    doLast {
+        if (!rtbApi) {
+            throw new GradleException('Play Store release requires RTB_API for authenticated purchase verification')
+        }
+        def api = new URI(rtbApi)
+        if (api.scheme != 'https' || !api.host || api.userInfo || api.query || api.fragment) {
+            throw new GradleException('RTB_API must be a fixed HTTPS origin/path without credentials, query or fragment')
+        }
+        if (!(playSupporterProduct ==~ /[a-z0-9][a-z0-9._-]{0,149}/)) {
+            throw new GradleException('Play Store release requires a valid RTB_PLAY_SUPPORTER_PRODUCT Play Console product ID')
+        }
+    }
+}
+
 android {
     namespace 'com.raisethebar.game'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId 'com.raisethebar.game'
         minSdk 26
-        targetSdk 35
-        versionCode 4
-        versionName '1.2.0'
+        targetSdk 36
+        versionCode 5
+        versionName '1.3.0'
 
         // Where shared challenge links point. Replay links only work for friends once the
         // web version is hosted here (e.g. GitHub Pages). The app also opens these links.
@@ -74,11 +93,25 @@ android {
         def sharePath = shareUri.path ?: '/'
         if (!shareHost || shareUri.scheme != 'https') throw new GradleException('RTB_API must use HTTPS for shared app links')
         buildConfigField 'String', 'SHARE_BASE_URL', "\"https://${shareHost}${sharePath}\""
+        buildConfigField 'String', 'RTB_API_BASE_URL', "\"${rtbApi.replace('\\', '\\\\').replace('"', '\\"')}\""
+        buildConfigField 'String', 'PLAY_SUPPORTER_PRODUCT_ID', "\"${playSupporterProduct.replace('\\', '\\\\').replace('"', '\\"')}\""
         manifestPlaceholders = [shareHost: shareHost, sharePath: sharePath]
     }
 
     buildFeatures {
         buildConfig true
+    }
+
+    flavorDimensions += 'distribution'
+    productFlavors {
+        direct {
+            dimension 'distribution'
+            buildConfigField 'boolean', 'PLAY_BILLING_ENABLED', 'false'
+        }
+        playStore {
+            dimension 'distribution'
+            buildConfigField 'boolean', 'PLAY_BILLING_ENABLED', 'true'
+        }
     }
 
     signingConfigs {
@@ -140,6 +173,7 @@ dependencies {
     implementation 'androidx.webkit:webkit:1.12.1'
     // hinge / fold posture on foldables (Galaxy Z Fold Flex mode)
     implementation 'androidx.window:window-java:1.3.0'
+    playStoreImplementation 'com.android.billingclient:billing:9.1.0'
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.14.1'
@@ -147,5 +181,10 @@ dependencies {
 
 tasks.named('preBuild') { dependsOn copyGame }
 tasks.configureEach { task ->
-    if (task.name == 'preReleaseBuild') task.dependsOn validateReleaseSigning
+    if (task.name == 'preDirectReleaseBuild' || task.name == 'prePlayStoreReleaseBuild') {
+        task.dependsOn validateReleaseSigning
+    }
+    if (task.name == 'prePlayStoreReleaseBuild') {
+        task.dependsOn validatePlayStoreConfiguration
+    }
 }

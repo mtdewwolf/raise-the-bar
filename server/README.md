@@ -2,7 +2,7 @@
 
 Leaderboards, replay verification and cross-device profiles for the game. The web version and the Android app talk to the same server, so your scores and achievements follow you between them.
 
-- **Node22.13+ plus the official Stripe SDK.** HTTP, SQLite and workers use Node built-ins. Run `npm ci` before starting. Payments remain disabled by default.
+- **Node22.13+ plus the official Stripe SDK and Google authentication library.** HTTP, SQLite and workers otherwise use Node built-ins. Run `npm ci` before starting. Both payment providers remain disabled by default.
 - **Scores are verified, not trusted.** A player uploads their run's replay code, not a height. The server re-runs the replay through the game's own physics, which it loads from `../index.html`, and ranks the height it gets itself. Tampered, unfinished or impossible replays are rejected.
 - **It can host the game too.** `GET /` serves `index.html`, so the game, the API and challenge links all share one address.
 
@@ -35,7 +35,7 @@ After deployment, check `https://<your-domain>/api/health` returns JSON with `"o
 - **Game hosted by this server:** nothing to do. The game uses its own origin automatically.
 - **Game hosted elsewhere** (GitHub Pages, itch.io and so on): set the meta tag in `index.html`:
   `<meta name="rtb-api" content="https://your-server.example">`
-- **Android:** build with `./gradlew assembleRelease -PrtbApi=https://your-server.example`. In CI, set a repository variable named `RTB_API`.
+- **Android direct release:** build with `./gradlew assembleDirectRelease -PrtbApi=https://your-server.example`. A Play release uses `bundlePlayStoreRelease` and additionally requires its Console Product ID; see [Google Play setup](GOOGLE-PLAY.md). In CI, set a repository variable named `RTB_API`.
 - **Testing:** in the browser console, `localStorage.rtb_api = 'http://localhost:8787'`, then reload.
 
 If no server is configured, or it can't be reached, the game still works fully. Finished runs wait in a small queue and upload the next time the server is reachable.
@@ -50,6 +50,8 @@ If no server is configured, or it can't be reached, the game still works fully. 
 | `RTB_SERVE_GAME` | `1` | Set to `0` to serve only the API |
 | `RTB_ALLOWED_ORIGIN` | `*` | CORS origin. `*` is safe because auth uses bearer tokens, not cookies |
 | `RTB_TRUST_PROXY` | `0` | Set to `1` behind a reverse proxy so rate limits use `X-Forwarded-For` |
+
+Stripe and Play variables are intentionally omitted from the general runtime table because partial configuration fails closed. Follow [Stripe setup](PAYMENTS.md) and [Google Play setup](GOOGLE-PLAY.md), and keep all provider credentials in the hosting platform's secret facility.
 
 ## API
 

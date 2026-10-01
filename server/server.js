@@ -237,7 +237,7 @@ function createApp(opts = {}) {
     if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
     const send = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
     try {
-      if(url.pathname !== '/api/payments/stripe/webhook') limit('ip:' + ip, 120, 60000);
+      if(!['/api/payments/stripe/webhook','/api/payments/google-play/rtdn'].includes(url.pathname)) limit('ip:' + ip, 120, 60000);
       const invite = /^\/challenge\/([A-Fa-f0-9]{12})(\/qr.svg)?$/.exec(url.pathname);
       if (serveGame && req.method === 'GET' && invite) {
         const challenge = friends.invite(invite[1]);
@@ -260,7 +260,7 @@ function createApp(opts = {}) {
   }
 
   const server = http.createServer(handle);
-  server.closeAll = async () => { clearInterval(rateCleanup); await new Promise((r) => server.close(r)); await pool.close(); db.close(); };
+  server.closeAll = async () => { clearInterval(rateCleanup); commerce.close(); await new Promise((r) => server.close(r)); await pool.close(); db.close(); };
   return server;
 }
 

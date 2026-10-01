@@ -30,27 +30,32 @@ Tested 2026-09-30 in the cloud workspace with Node 24.19.0.
 
 Use Node >=22.13, then `cd server && npm test` and `npm start`. Open the printed localhost address for manual playtesting. The web game is a single HTML file with no asset compilation step; the server has no npm dependencies.
 
-## Rebuilt test-only payment foundation — 2026-09-30
+## Stripe and Google Play payment foundation - 2026-10-01
 
-The first unpushed local payment commit was lost in an executor reset. This is a newly reconstructed and freshly tested implementation on `feat/payment-foundation` from base `f3ecfde`, not an assertion that the old commit's bytes were recovered.
+Current implementation is on `feat/payment-foundation` / PR13. The Stripe hardening checkpoint `c2c1cd0` was pushed and its exact GitHub server/Android/security checks passed before the Play integration was added.
 
 Fresh verification:
-- Clean lockfile install (`npm ci --offline`) succeeded; full Node suite **50/50 passing**
-- Real Stripe SDK raw-body signature/timestamp tests with clearly synthetic offline fixtures; provider HTTP calls mocked
-- Account migration, recovery/code rotation/session revocation, password-login/reset race, recovery/ownership/Chalk retention and SQLite close/reopen
-- Forged paid achievements/equips/prices, mismatched amount/SKU/live events, duplicate concurrent checkout/webhooks, reordered refund/dispute terminal revocation, expired/retried checkout concurrency, native purchase denial
-- Reproducible executable DOM-state UI test against real local backend: consent, recovery/login/logout, session-only tokens, busy navigation/secret clearing, queue owner isolation, restore without false unlock, Android guards
-- Android standalone Java navigation policy **49 assertions passed**, plus three Node static platform/signing gate tests
-- Pure simulation unchanged from base, SHA256 `6eb4e2465fcb287cecb3fc73065ee186f834e732d062d30bac320d2269e9f3ce`
-- JS syntax and `git diff --check` passed
+- Clean lockfile install (`npm ci`) succeeded; full Node suite **60/60 passing**
+- Stripe Node SDK remains pinned at22.6.2 and API `2026-08-26.dahlia`; real SDK raw-body signature/timestamp handling is exercised with synthetic offline fixtures only
+- Reusable configured sandbox Price/Product identity, amount and currency fail closed; `rk_test_` and `sk_test_` are accepted while live keys are rejected
+- Dynamic payment methods, stable per-order integration labels/idempotency, delayed `processing` state, authenticated refresh, async success/failure, duplicate/concurrent retries, terminal refunds/disputes and source-aware ownership are covered
+- Play backend adapter covers ProductPurchaseV2 state/product/package/account binding, globally unique token ownership, transactional grant-before-acknowledge, durable acknowledgement retry, authenticated/deduplicated RTDN, periodic reconciliation and source-specific revocation
+- Android targets API36, uses Billing9.1.0 only in the `playStore` flavor, and keeps the `direct` flavor Billing-free. After the final origin-channel refactor, both debug APKs, both minified internal-test APKs and the Play internal-test AAB built; both flavor unit suites and debug/internal-test lints passed
+- Android standalone Java navigation policy **49 assertions passed**. Sensitive purchase/account messages use an exact-origin, main-frame-only WebMessage channel; Stripe checkout remains blocked in every Android flavor
+- Release/AAB signing and Play configuration checks fail closed when private signing/backend/Product configuration is absent
+- Reproducible DOM-state tests cover account interruption/owner isolation and the delayed-payment UI before redirect parsing
+- Pure simulation/physics were not modified; `git diff --check` passed
 
-Fresh independent security review completed with no unresolved blockers. The reviewer independently reran all 50 tests and additional adversarial probes: three concurrent expired retries create one replacement; streamed checkout after session revocation returns 401 without provider call; aged uncertain checkout returns 409; hourly limiter survives three-minute cleanup; concurrent single-use recovery returns one success and one rejection. This supports draft publication only, not launch approval.
+Storage evidence:
+- Railway volume `e6871e4c-f37e-4f7c-8093-de84eb45da2a` is mounted at `/data`
+- It was restored from an integrity/hash-verified export, and a normal redeploy retained the expected records on2026-09-30
+- A private manual PC snapshot exists. The operator declined Railway's paid scheduled-backup option, so automated off-site backup/restore drills remain an operational gap
 
-Unverified/blocked:
-- Real Stripe sandbox Checkout/webhook/refund flow: no authorized credentials configured or transaction made
-- Actual Railway volume/backup/restore/redeploy proof: prior audit found no persistent volume; checkout stays disabled by default
-- Android assembly, Android unit tests and lint: Gradle download reports network unreachable; Android SDK unavailable locally; CI will provide a separate result
-- Real browser visual/layout/mobile/accessibility-focus QA: DOM harness is not a browser; previous supported browser attempts were environment-blocked
-- Production launch: live mode unsupported; no deploy, real charge, financial account/credential creation or external configuration changes performed
+Still unverified/blocked:
+- Real Stripe sandbox Checkout/webhook/refund flow: no authorized credential was configured and no transaction was made
+- Real Play Console/internal-track/device flow: no Product, service account, Pub/Sub subscription, signing key, upload, license-tester purchase, refund or revocation was created/performed
+- Payment-specific persistence across a live provider flow, missed-notification recovery against the real APIs, and full mobile visual/accessibility QA
+- Play account-deletion request UX/public web resource, privacy/Data Safety declarations, agreements, support/refund/tax/legal decisions and any applicable closed-test eligibility requirement
+- Production launch: live Stripe mode is rejected; no deployment, real charge, secret creation/entry or external provider configuration occurred
 
-See `server/PAYMENTS.md` and `android/PAYMENT-SAFETY.md` for operational requirements.
+See `server/PAYMENTS.md`, `server/GOOGLE-PLAY.md` and `android/PAYMENT-SAFETY.md` for operational requirements.

@@ -11,7 +11,7 @@ const { createApp } = require('../server');
 
 const html = fs.readFileSync(path.join(__dirname, '../../index.html'), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1].replace(
-  '  requestAnimationFrame(frame);\n})();',
+  /  requestAnimationFrame\(frame\);\r?\n\}\)\(\);/,
   `  window.__test = {
     get profile() { return profile; }, get pending() { return pending; },
     get paidInventory() { return paidInventory; }, get accountBusy() { return accountBusy; },
@@ -82,6 +82,13 @@ async function waitFor(predicate) {
   throw new Error('UI state did not settle');
 }
 const submit = element => element.onsubmit({ preventDefault() {} });
+
+test('checkout UI treats a delayed payment as processing before parsing a redirect URL', () => {
+  const processing = html.indexOf("checkout.state === 'processing'");
+  const redirect = html.indexOf('new URL(checkout.url)');
+  assert.ok(processing >= 0 && redirect > processing);
+  assert.match(html, /No second checkout was opened; refresh purchases after Stripe finishes/);
+});
 
 test('account client state: recovery, session secrets, interruption guards, owner isolation and native checkout', { timeout: 15000 }, async () => {
   const app = createApp({ dbFile: ':memory:' });

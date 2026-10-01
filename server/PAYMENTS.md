@@ -28,7 +28,7 @@ Server catalog, orders, inventory and equip validation are authoritative. Redire
 - Unpaid/failed/expired sessions grant nothing. Failed/expired orders can retry. Duplicate events/requests are idempotent.
 - Refunds/disputes leave terminal revocation tombstones; late payment events cannot resurrect them. Full or partial refund or any dispute conservatively revokes the entire pack. Dispute closure does not regrant automatically. Support/refund policy must be finalized before launch.
 - Restore authenticates the player and reconciles only that player's stored sessions; client-submitted receipt/session/player IDs are never trusted. The app does not initiate refunds or charges outside Checkout creation.
-- Android web checkout remains blocked pending native billing; see [Android safety](../android/PAYMENT-SAFETY.md).
+- Android web checkout remains blocked. The separate native Play foundation shares the authoritative entitlement ledger; see [Google Play setup](GOOGLE-PLAY.md) and [Android safety](../android/PAYMENT-SAFETY.md).
 
 ## Persistence and actual sandbox verification
 
@@ -38,13 +38,13 @@ Authorized operator checklist:
 1. Before payment-specific migrations or risky operations, take another consistent SQLite snapshot using online backup/`.backup`, or stop writes/checkpoint before copying. Copying only a live `.sqlite` file while ignoring WAL is unsafe. Keep a single server writer; this SQLite design is not distributed/multi-replica storage.
 2. Reconfirm the `/data` mount, absolute `RTB_DB` path, restored records, and restart/redeploy persistence. Payment-order persistence itself has not yet been exercised against Stripe end to end.
 3. Configure `RTB_PAYMENT_STORAGE_READY=1`, `RTB_PAYMENTS_MODE=test`, `RTB_PUBLIC_URL=https://<approved-web-origin>`, `STRIPE_PRICE_SUPPORTER_PACK=price_...`, an authorized `STRIPE_SECRET_KEY` beginning `rk_test_` (preferred) or `sk_test_`, and `STRIPE_WEBHOOK_SECRET` through secure platform secret management. `rk_live_` and `sk_live_` are rejected. Never provide secrets in chat, browser assets, source code or URLs.
-4. Provision the reusable sandbox Product/Price separately in the selected sandbox, then record its Price ID. The product must be active, carry `metadata.sku=supporter_pack`, and have a one-time USD499 Price. This repository does not create or mutate Stripe catalog objects.
+4. Provision the reusable sandbox Product/Price separately in the selected sandbox, then record its Price ID. The product must be active, carry `metadata.sku=supporter_pack`, and have a one-time USD4.99 (499-cent) Price. This repository does not create or mutate Stripe catalog objects.
 5. Register sandbox `/api/payments/stripe/webhook` for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`, `refund.created`, `refund.updated`. Keep retries enabled and monitor errors without secret-bearing request logging.
 6. Verify HTTPS/domain/port routing and `RTB_TRUST_PROXY` against the actual trusted proxy, plus CORS/security headers. Exercise real sandbox account recovery, cancel/retry, delayed fulfillment, webhook retries/duplicates, refund/dispute, restore/reinstall and persistent restart with sandbox test details only.
 
 The runtime restricted key should start with: Checkout Sessions Write; PaymentIntents, Charges, Products and Prices Read. It does not need Refund Write, Customers Write, payouts, Connect or subscriptions. Validate the actual restricted-key permission set in the sandbox request logs before enabling checkout; no real sandbox transaction has been run yet.
 
-Not production-ready until those checks, real visual/mobile QA, Android build/native billing/private signing, operational monitoring, legal/refund/tax/privacy decisions, catalog/pricing, and account-abuse hardening are complete. Define separate live/test environments and ledger partitioning before adding live mode; do not silently migrate test entitlements into live purchases.
+Not production-ready until those checks, real visual/mobile QA, Play Console/device verification/private signing, operational monitoring, legal/refund/tax/privacy decisions, catalog/pricing, and account-abuse hardening are complete. Define separate live/test environments and ledger partitioning before adding live mode; do not silently migrate test entitlements into live purchases.
 
 ## API
 
@@ -61,5 +61,8 @@ Private routes require `Authorization: Bearer <legacy sync code or account sessi
 - `POST /api/shop/checkout`: `{sku:'supporter_pack',channel:'web'}` → hosted URL
 - `POST /api/shop/restore`: reconcile own orders → profile
 - `POST /api/payments/stripe/webhook`: raw signed test event
+- `POST /api/shop/google-play/verify`: authenticated Play purchase-token verification and entitlement response
+- `POST /api/shop/google-play/reconcile`: authenticated retry/reconciliation for the account's known Play tokens
+- `POST /api/payments/google-play/rtdn`: authenticated Pub/Sub RTDN push
 
 Run `cd server && npm ci && npm test`. Test fixtures never call external provider APIs. Sources: [Stripe fulfillment](https://docs.stripe.com/checkout/fulfillment), [webhooks](https://docs.stripe.com/webhooks), [refunds](https://docs.stripe.com/refunds), [OWASP recovery guidance](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html).

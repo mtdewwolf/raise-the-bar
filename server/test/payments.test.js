@@ -4,23 +4,26 @@ const {createApp}=require('../server'),{openDb}=require('../db');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const SECRET='whsec_offline_fixture_only',PASSWORD='correct horse fixture battery';
 function provider(){
- const sdk=new Stripe('sk_test_offline_fixture_only'),sessions=new Map(),intents=new Map(),charges=new Map(),keys=new Map();let seq=0;
- const stripeProduct={id:'prod_testsupporter',livemode:false,active:true,metadata:{sku:'supporter_pack'}};
- const stripePrice={id:'price_testsupporter',livemode:false,active:true,type:'one_time',recurring:null,unit_amount:499,currency:'usd',product:stripeProduct};
+ const sdk=new Stripe('sk_test_offline_fixture_only'),sessions=new Map(),intents=new Map(),charges=new Map(),keys=new Map(),creates=[];let seq=0,loseNext=false,completeNext=false;
+  const stripeProduct={id:'prod_testsupporter',livemode:false,active:true,metadata:{sku:'supporter_pack'}};
+  const stripePrice={id:'price_testsupporter',livemode:false,active:true,type:'one_time',recurring:null,unit_amount:499,currency:'usd',product:stripeProduct};
  const stripe={webhooks:sdk.webhooks,checkout:{sessions:{
   create:async(params,{idempotencyKey})=>{
+   creates.push({idempotencyKey,integrationIdentifier:params.integration_identifier});
    if(keys.has(idempotencyKey))return sessions.get(keys.get(idempotencyKey));
    assert.equal(params.line_items[0].price,stripePrice.id);assert.equal(params.payment_method_types,undefined);assert.match(params.integration_identifier,/^raise_the_bar_web_[a-z]{8}$/);
    const id='cs_test_'+(++seq),pi='pi_'+seq,ch='ch_'+seq;
    const charge={id:ch,livemode:false,paid:false,refunded:false,amount_refunded:0,disputed:false,amount:stripePrice.unit_amount,currency:stripePrice.currency,payment_intent:pi};
    const intent={id:pi,livemode:false,status:'requires_payment_method',amount:stripePrice.unit_amount,currency:stripePrice.currency,metadata:params.payment_intent_data.metadata,latest_charge:charge};
    const session={id,status:'open',livemode:false,mode:params.mode,metadata:params.metadata,client_reference_id:params.client_reference_id,amount_total:stripePrice.unit_amount,currency:stripePrice.currency,payment_status:'unpaid',payment_intent:intent,line_items:{data:[{quantity:1,amount_total:stripePrice.unit_amount,price:stripePrice}]},url:'https://checkout.stripe.com/c/pay/'+id,integration_identifier:params.integration_identifier};
-   sessions.set(id,session);intents.set(pi,intent);charges.set(ch,charge);keys.set(idempotencyKey,id);return session;
-  },retrieve:async id=>{assert.ok(sessions.has(id));return sessions.get(id);}}},prices:{retrieve:async id=>{assert.equal(id,stripePrice.id);return stripePrice;}},paymentIntents:{retrieve:async id=>intents.get(id)},charges:{retrieve:async id=>charges.get(id)}};
- return {stripe,sessions,stripePrice,pay:s=>{s.payment_status='paid';s.status='complete';s.url=null;s.payment_intent.status='succeeded';s.payment_intent.latest_charge.paid=true;}};
+   sessions.set(id,session);intents.set(pi,intent);charges.set(ch,charge);keys.set(idempotencyKey,id);
+   if(completeNext){completeNext=false;pay(session);}if(loseNext){loseNext=false;throw new Error('synthetic lost create response');}return session;
+  },retrieve:async id=>{assert.ok(sessions.has(id));return sessions.get(id);}}},prices:{retrieve:async id=>{assert.equal(id,'price_testsupporter');return stripePrice;}},paymentIntents:{retrieve:async id=>intents.get(id)},charges:{retrieve:async id=>charges.get(id)}};
+ const pay=s=>{s.payment_status='paid';s.status='complete';s.url=null;s.payment_intent.status='succeeded';s.payment_intent.latest_charge.paid=true;};
+ return {stripe,sessions,stripePrice,creates,pay,loseNextResponse:()=>{loseNext=true;},completeNextCreate:()=>{completeNext=true;}};
 }
-async function withApp(fn,{dbFile=':memory:',mock=true}={}){
- let time=Date.UTC(2026,8,30,9);const fake=provider();
+async function withApp(fn,{dbFile=':memory:',mock=true,providerFixture}={}){
+ let time=Date.UTC(2026,8,30,9);const fake=providerFixture||provider();
  const app=createApp({dbFile,now:()=>time,publicUrl:'https://fixture.invalid',pool:{close:async()=>{}},payments:mock?{stripe:fake.stripe,webhookSecret:SECRET,priceIds:{supporter_pack:'price_testsupporter'}}:undefined});
  await new Promise(r=>app.listen(0,r));const base='http://127.0.0.1:'+app.address().port;
  async function call(method,url,body,token,headers={}){
@@ -106,11 +109,20 @@ test('completed unpaid checkout becomes processing and never opens a second chec
  const s=[...fake.sessions.values()][0],label=s.integration_identifier;s.status='complete';s.payment_status='unpaid';s.url=null;
  const retried=await Promise.all([buy(p.token),buy(p.token)]);assert.ok(retried.every(r=>r.status===200&&r.body.state==='processing'&&!r.body.url));assert.equal(fake.sessions.size,1);assert.equal(s.integration_identifier,label);
  let me=(await call('GET','/api/me',undefined,p.token)).body;assert.equal(me.purchases[0].status,'processing');assert.ok(!me.inventory.some(i=>i.id==='supporter'));
- await webhook(s,'checkout.session.async_payment_failed');me=(await call('POST','/api/shop/restore',{},p.token)).body;assert.equal(me.purchases[0].status,'failed');assert.equal((await buy(p.token)).body.state,'checkout');assert.equal(fake.sessions.size,2);
+  await webhook(s,'checkout.session.async_payment_failed');me=(await call('POST','/api/shop/restore',{},p.token)).body;assert.equal(me.purchases[0].status,'failed');assert.equal((await buy(p.token)).body.state,'checkout');assert.equal(fake.sessions.size,2);
 }));
-test('configured Price and Product identity or amount mismatch fails closed',()=>withApp(async({confirmed,buy,fake})=>{
- const p=await confirmed();fake.stripePrice.unit_amount=1;const mismatch=await buy(p.token);assert.equal(mismatch.status,503);assert.equal(fake.sessions.size,0);
-}));
+test('processing checkout can complete asynchronously and paid null-URL create returns paid',async()=>{
+ await withApp(async({call,confirmed,buy,fake,webhook})=>{const p=await confirmed();await buy(p.token);const s=[...fake.sessions.values()][0];s.status='complete';s.payment_status='unpaid';s.url=null;assert.equal((await buy(p.token)).body.state,'processing');fake.pay(s);await webhook(s,'checkout.session.async_payment_succeeded');const me=(await call('GET','/api/me',undefined,p.token)).body;assert.equal(me.purchases[0].status,'paid');assert.ok(me.inventory.some(item=>item.id==='supporter'));});
+ await withApp(async({call,confirmed,buy,fake})=>{const p=await confirmed();fake.completeNextCreate();const result=await buy(p.token);assert.equal(result.status,200);assert.deepEqual(result.body,{state:'paid'});assert.ok((await call('GET','/api/me',undefined,p.token)).body.inventory.some(item=>item.id==='supporter'));});
+});
+test('configured Price and Product catalog mismatches independently fail closed',async()=>{
+ const cases=[
+  ['price ID',price=>{price.id='price_wrong';}],['amount',price=>{price.unit_amount=1;}],['currency',price=>{price.currency='eur';}],
+  ['inactive Price',price=>{price.active=false;}],['live Price',price=>{price.livemode=true;}],['recurring Price',price=>{price.type='recurring';price.recurring={interval:'month'};}],
+  ['Product ID',price=>{price.product.id='invalid product';}],['Product SKU',price=>{price.product.metadata.sku='other';}],['inactive Product',price=>{price.product.active=false;}],['live Product',price=>{price.product.livemode=true;}],
+ ];
+ for(const [name,mutate]of cases)await withApp(async({confirmed,buy,fake})=>{const p=await confirmed(name.replace(/\W/g,'').slice(0,20).toLowerCase());mutate(fake.stripePrice);const mismatch=await buy(p.token);assert.equal(mismatch.status,503,name);assert.equal(fake.sessions.size,0,name);});
+});
 test('old password login cannot issue valid session after concurrent recovery',()=>withApp(async({call,register})=>{
  const p=await register();const [recovered,logged]=await Promise.all([call('POST','/api/account/recover',{username:'fixture',password:PASSWORD+'new',recoveryCode:p.recoveryCode}),call('POST','/api/account/login',{username:'fixture',password:PASSWORD})]);assert.equal(recovered.status,200);
  if(logged.status===200)assert.equal((await call('GET','/api/me',undefined,logged.body.token)).status,401);else assert.equal(logged.status,401);
@@ -121,6 +133,15 @@ test('legacy forged paid look never appears in challenge snapshots',()=>onDisk(d
 test('concurrent checkout retry after expiry before webhook creates single replacement',()=>withApp(async({confirmed,buy,fake})=>{
  const p=await confirmed();await buy(p.token);[...fake.sessions.values()][0].status='expired';const both=await Promise.all([buy(p.token),buy(p.token)]);assert.ok(both.every(r=>r.status===200));assert.equal(both[0].body.url,both[1].body.url);assert.equal(fake.sessions.size,2);
 }));
+test('saved Price and Product snapshots reject changed Session identity',()=>withApp(async({confirmed,buy,fake,webhook})=>{
+ const p=await confirmed();await buy(p.token);const s=[...fake.sessions.values()][0];fake.pay(s);s.line_items.data[0].price.id='price_changed';assert.equal((await webhook(s)).status,422);s.line_items.data[0].price.id='price_testsupporter';s.line_items.data[0].price.product.id='prod_changed';assert.equal((await webhook(s)).status,422);
+}));
+test('lost create response survives restart with the same order label and idempotency key',()=>onDisk(async dbFile=>{
+ const fake=provider();let token,orderId,label;
+ await withApp(async({confirmed,buy})=>{const p=await confirmed();token=p.token;fake.loseNextResponse();const original=console.error;let response;try{console.error=()=>{};response=await buy(token);}finally{console.error=original;}assert.equal(response.status,500);const {db}=openDb(dbFile),row=db.prepare('SELECT id,integration_identifier,session_id FROM purchase_orders').get();db.close();orderId=row.id;label=row.integration_identifier;assert.equal(row.session_id,null);assert.match(label,/^raise_the_bar_web_[a-z]{8}$/);},{dbFile,providerFixture:fake});
+ await withApp(async({buy})=>{const result=await buy(token);assert.equal(result.status,200);assert.equal(result.body.state,'checkout');const {db}=openDb(dbFile),row=db.prepare('SELECT id,integration_identifier,session_id FROM purchase_orders').get();db.close();assert.equal(row.id,orderId);assert.equal(row.integration_identifier,label);assert.ok(row.session_id);},{dbFile,providerFixture:fake});
+ assert.equal(fake.sessions.size,1);assert.equal(fake.creates.length,2);assert.equal(fake.creates[0].idempotencyKey,fake.creates[1].idempotencyKey);assert.equal(fake.creates[0].integrationIdentifier,label);assert.equal(fake.creates[1].integrationIdentifier,label);
+}));
 test('recovery keeps paid inventory, Chalk and upgrades',()=>onDisk(dbFile=>withApp(async({call,confirmed,buy,fake,webhook})=>{
  const p=await confirmed(),{db}=openDb(dbFile);db.prepare('UPDATE players SET upgrades = ? WHERE id = ?').run('{"spring":1}',p.playerId);db.prepare('INSERT INTO runs(player_id,kind,day,seed,height,score,bars,hops,replay,replay_hash,created_at,coins) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(p.playerId,'endless',0,1,10,100,5,5,'fixture','wallet-fixture',1,200);db.close();
  await buy(p.token);const s=[...fake.sessions.values()][0];fake.pay(s);await webhook(s);const r=await call('POST','/api/account/recover',{username:'fixture',password:PASSWORD+'new',recoveryCode:p.recoveryCode});assert.equal(r.status,200);assert.equal(r.body.earned,200);assert.equal(r.body.upgrades.spring,1);assert.ok(r.body.inventory.some(i=>i.id==='supporter'));
@@ -128,10 +149,9 @@ test('recovery keeps paid inventory, Chalk and upgrades',()=>onDisk(dbFile=>with
 test('only sandbox secret/restricted keys plus durable configured catalog can enable provider',async()=>{
  const names=['STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET','STRIPE_PRICE_SUPPORTER_PACK','RTB_PAYMENTS_MODE','RTB_PAYMENT_STORAGE_READY','RTB_DB'],saved=Object.fromEntries(names.map(n=>[n,process.env[n]]));
  try{
-  Object.assign(process.env,{STRIPE_SECRET_KEY:'sk_live_offline_invalid_fixture',STRIPE_WEBHOOK_SECRET:SECRET,STRIPE_PRICE_SUPPORTER_PACK:'price_offlinefixture',RTB_PAYMENTS_MODE:'test',RTB_PAYMENT_STORAGE_READY:'1',RTB_DB:':memory:'});
+  Object.assign(process.env,{STRIPE_SECRET_KEY:'sk_test_offline_invalid_fixture',STRIPE_WEBHOOK_SECRET:SECRET,STRIPE_PRICE_SUPPORTER_PACK:'price_offlinefixture',RTB_PAYMENTS_MODE:'test',RTB_PAYMENT_STORAGE_READY:'1',RTB_DB:':memory:'});
   await withApp(async({call})=>assert.equal((await call('GET','/api/shop')).body.checkoutEnabled,false),{mock:false});
-  process.env.STRIPE_SECRET_KEY='rk_live_offline_invalid_fixture';await withApp(async({call})=>assert.equal((await call('GET','/api/shop')).body.checkoutEnabled,false),{mock:false});
-  await onDisk(async dbFile=>{process.env.RTB_DB=dbFile;for(const prefix of['sk_test_','rk_test_']){process.env.STRIPE_SECRET_KEY=prefix+'offline_invalid_fixture';await withApp(async({call})=>assert.equal((await call('GET','/api/shop')).body.checkoutEnabled,true),{mock:false,dbFile});}});
+  await onDisk(async dbFile=>{process.env.RTB_DB=dbFile;for(const prefix of['sk_live_','rk_live_']){process.env.STRIPE_SECRET_KEY=prefix+'offline_invalid_fixture';await withApp(async({call})=>assert.equal((await call('GET','/api/shop')).body.checkoutEnabled,false,prefix),{mock:false,dbFile});}for(const prefix of['sk_test_','rk_test_']){process.env.STRIPE_SECRET_KEY=prefix+'offline_invalid_fixture';await withApp(async({call})=>assert.equal((await call('GET','/api/shop')).body.checkoutEnabled,true,prefix),{mock:false,dbFile});}});
  }finally{for(const n of names)if(saved[n]===undefined)delete process.env[n];else process.env[n]=saved[n];}
 });
 test('malformed raw URL is400 without terminating process',async()=>{
