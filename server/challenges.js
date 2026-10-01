@@ -2,7 +2,7 @@
 const crypto = require('node:crypto');
 
 // Challenges have their own results: archived event races never change public boards or wallets.
-function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpError }) {
+function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpError, sanitizeLook }) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS challenges (
       code TEXT PRIMARY KEY, creator_id INTEGER NOT NULL REFERENCES players(id),
@@ -29,7 +29,7 @@ function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpErr
   const insert = db.prepare('INSERT INTO challenges(code,creator_id,kind,day,seed,version,created_at,expires_at,parent_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const add = db.prepare('INSERT OR IGNORE INTO challenge_attempts(code,player_id,replay,replay_hash,height,created_at) VALUES(?,?,?,?,?,?)');
   const duplicate = db.prepare('SELECT 1 FROM challenge_attempts WHERE code=? AND player_id=? AND replay_hash=?');
-  const roster = db.prepare(`SELECT m.player_id, p.name, p.look,
+  const roster = db.prepare(`SELECT m.player_id, p.name, p.look, p.achievements,
     a.height, a.replay, a.created_at FROM challenge_members m JOIN players p ON p.id=m.player_id
     LEFT JOIN challenge_attempts a ON a.id=(SELECT id FROM challenge_attempts
       WHERE code=m.code AND player_id=m.player_id ORDER BY height DESC, created_at, id LIMIT 1)
@@ -50,7 +50,7 @@ function challengeRoutes({ db, q, RTB, pool, now, auth, readJson, limit, HttpErr
     const entries = rows.map((r, i) => {
       if (r.height !== null && r.height !== previous) rank = i + 1;
       previous = r.height;
-      let look = {}; try { look = JSON.parse(r.look); } catch {}
+      const look = sanitizeLook({...r,id:r.player_id});
       return { name: r.name, look, height: r.height, replay: r.replay, rank: r.height === null ? null : rank,
         you: !!p && r.player_id === p.id, creator: r.player_id === c.creator_id };
     });

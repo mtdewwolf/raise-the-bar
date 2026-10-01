@@ -2,9 +2,15 @@
   "name": "raising-the-bar-server",
   "private": true,
   "description": "Leaderboards, replay verification and achievement sync for Raising the Bar",
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "start": "node --no-warnings server.js",
     "test": "node --no-warnings --test test/*.test.js"
+  },
+  "dependencies": {
+    "google-auth-library": "11.1.0",
+    "stripe": "22.6.2"
   }
 }

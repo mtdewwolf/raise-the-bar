@@ -2,31 +2,180 @@ name: Android APK
 
 on:
   push:
-    paths: ['index.html', 'android/**', '.github/workflows/android.yml']
+    paths:
+      - index.html
+      - android/**
+      - Gemfile
+      - .ruby-version
+      - fastlane/**
+      - .github/workflows/android.yml
   pull_request:
-    paths: ['index.html', 'android/**', '.github/workflows/android.yml']
+    paths:
+      - index.html
+      - android/**
+      - Gemfile
+      - .ruby-version
+      - fastlane/**
+      - .github/workflows/android.yml
   workflow_dispatch:
+    inputs:
+      build_signed_play_release:
+        description: Build signed Play AAB from default branch (requires protected environment approval)
+        required: true
+        default: false
+        type: boolean
+      publish_internal:
+        description: Upload the signed AAB to Play internal testing (requires first manual Console upload and WIF)
+        required: true
+        default: false
+        type: boolean
+      play_release_status:
+        description: Play internal release status (used only when publish_internal is enabled)
+        required: true
+        default: draft
+        type: choice
+        options:
+          - draft
+          - completed
+
+permissions:
+  contents: read
 
 jobs:
+  fastlane-config:
+    runs-on: ubuntu-latest
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_HIDE_CHANGELOG: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test Play publishing trust boundaries
+        run: sh android/test-play-publishing-policy.sh
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+        with:
+          bundler-cache: true
+      - name: Validate pinned fastlane configuration
+        run: bundle exec fastlane lanes
+
   build:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: android
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew assembleDebug assembleRelease testDebugUnitTest lint
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+      - run: ./gradlew assembleDirectDebug assemblePlayStoreDebug assembleDirectInternalTest assemblePlayStoreInternalTest bundlePlayStoreInternalTest testDirectDebugUnitTest testPlayStoreDebugUnitTest lintDirectDebug lintPlayStoreDebug lintDirectInternalTest lintPlayStoreInternalTest
         env:
           # optional: set a repository variable RTB_API to your leaderboard server's URL
           RTB_API: ${{ vars.RTB_API }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: raising-the-bar-apk
           path: |
-            android/app/build/outputs/apk/debug/app-debug.apk
-            android/app/build/outputs/apk/release/app-release.apk
+            android/app/build/outputs/apk/direct/debug/app-direct-debug.apk
+            android/app/build/outputs/apk/direct/internalTest/app-direct-internalTest.apk
+            android/app/build/outputs/apk/playStore/debug/app-playStore-debug.apk
+            android/app/build/outputs/apk/playStore/internalTest/app-playStore-internalTest.apk
+            android/app/build/outputs/bundle/playStoreInternalTest/app-playStore-internalTest.aab
+
+  signed-play-release:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (inputs.build_signed_play_release || inputs.publish_internal)
+    runs-on: ubuntu-latest
+    environment: play-internal
+    defaults:
+      run:
+        working-directory: android
+    env:
+      RTB_API: ${{ vars.RTB_API }}
+      RTB_PLAY_SUPPORTER_PRODUCT: ${{ vars.RTB_PLAY_SUPPORTER_PRODUCT }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+      - name: Build signed Play Store AAB
+        shell: bash
+        env:
+          RTB_KEYSTORE_BASE64: ${{ secrets.RTB_KEYSTORE_BASE64 }}
+          RTB_KEYSTORE_PASSWORD: ${{ secrets.RTB_KEYSTORE_PASSWORD }}
+          RTB_KEY_ALIAS: ${{ secrets.RTB_KEY_ALIAS }}
+          RTB_KEY_PASSWORD: ${{ secrets.RTB_KEY_PASSWORD }}
+        run: |
+          : "${RTB_KEYSTORE_BASE64:?Missing RTB_KEYSTORE_BASE64 secret}"
+          : "${RTB_KEYSTORE_PASSWORD:?Missing RTB_KEYSTORE_PASSWORD secret}"
+          : "${RTB_KEY_ALIAS:?Missing RTB_KEY_ALIAS secret}"
+          : "${RTB_KEY_PASSWORD:?Missing RTB_KEY_PASSWORD secret}"
+          upload_key="$RUNNER_TEMP/rtb-upload.jks"
+          trap 'rm -f "$upload_key"' EXIT HUP INT TERM
+          printf '%s' "$RTB_KEYSTORE_BASE64" | base64 --decode > "$upload_key"
+          chmod 600 "$upload_key"
+          RTB_KEYSTORE_FILE="$upload_key" ./gradlew --no-daemon bundlePlayStoreRelease
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: raising-the-bar-play-release
+          path: android/app/build/outputs/bundle/playStoreRelease/app-playStore-release.aab
+          if-no-files-found: error
+
+  publish-play-internal:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      inputs.publish_internal
+    needs:
+      - build
+      - fastlane-config
+      - signed-play-release
+    runs-on: ubuntu-latest
+    environment: play-internal
+    concurrency:
+      group: play-internal-publish
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_HIDE_CHANGELOG: "1"
+      RTB_PLAY_WIF_PROVIDER: ${{ vars.RTB_PLAY_WIF_PROVIDER }}
+      RTB_PLAY_PUBLISHER_SERVICE_ACCOUNT: ${{ vars.RTB_PLAY_PUBLISHER_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Require default branch and Workload Identity configuration
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" || {
+            echo "Play publishing is allowed only from the default branch." >&2
+            exit 1
+          }
+          : "${RTB_PLAY_WIF_PROVIDER:?Missing play-internal variable RTB_PLAY_WIF_PROVIDER}"
+          : "${RTB_PLAY_PUBLISHER_SERVICE_ACCOUNT:?Missing play-internal variable RTB_PLAY_PUBLISHER_SERVICE_ACCOUNT}"
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: raising-the-bar-play-release
+          path: android/app/build/outputs/bundle/playStoreRelease
+      - name: Verify signed AAB artifact
+        shell: bash
+        run: test -s android/app/build/outputs/bundle/playStoreRelease/app-playStore-release.aab
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+        with:
+          bundler-cache: true
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ env.RTB_PLAY_WIF_PROVIDER }}
+          service_account: ${{ env.RTB_PLAY_PUBLISHER_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Publish AAB to internal testing only
+        run: bundle exec fastlane android publish_internal release_status:${{ inputs.play_release_status }}

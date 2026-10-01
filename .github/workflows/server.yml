@@ -15,6 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: oven-sh/setup-bun@v2
-      - run: bun run test
+      - run: npm ci
+        working-directory: server
+      - run: npm test
         working-directory: server

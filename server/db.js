@@ -60,7 +60,7 @@ function openDb(file) {
     runByHash: db.prepare('SELECT id, player_id FROM runs WHERE replay_hash = ?'),
     insertRun: db.prepare(`INSERT INTO runs (player_id, kind, day, seed, height, score, bars, hops, replay, replay_hash, created_at, coins, up)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-    runById: db.prepare('SELECT r.id, r.replay, r.height, r.kind, r.day, p.name, p.look FROM runs r JOIN players p ON p.id = r.player_id WHERE r.id = ?'),
+    runById: db.prepare('SELECT r.id, r.player_id, r.replay, r.height, r.kind, r.day, p.name, p.look, p.achievements FROM runs r JOIN players p ON p.id = r.player_id WHERE r.id = ?'),
     best: db.prepare('SELECT height, run_id FROM bests WHERE board = ? AND day = ? AND player_id = ?'),
     upsertBest: db.prepare(`INSERT INTO bests (board, day, player_id, run_id, height, achieved_at) VALUES (?, ?, ?, ?, ?, ?)
                             ON CONFLICT (board, day, player_id) DO UPDATE SET run_id = excluded.run_id, height = excluded.height, achieved_at = excluded.achieved_at`),

@@ -140,9 +140,11 @@ test('serves the game and answers CORS preflight', () => withServer(async (call)
 
 test('looks are saved on the profile and shown with runs', () => withServer(async (call) => {
   const t = (await call('POST', '/api/player', { name: 'Fancy' })).body.token;
-  const r = await call('PATCH', '/api/me', { look: { hat: 'crown', jersey: 'gold', suit: 'none', bogus: 'x', band: 'NOT OK' } }, t);
+  await call('PUT','/api/me/achievements',{ids:['top10','h25']},t);
+  assert.equal((await call('PATCH','/api/me',{look:{bogus:'x'}},t)).status,403);
+  const r = await call('PATCH','/api/me',{look:{hat:'crown',jersey:'gold',suit:'none'}},t);
   assert.equal(r.status, 200);
-  assert.deepEqual(r.body.look, { hat: 'crown', jersey: 'gold', suit: 'none' });
+  assert.deepEqual(r.body.look, {hat:'crown',jersey:'gold',suit:'none',band:'yellow',back:'none'});
   assert.equal((await call('PATCH', '/api/me', { look: 'nope' }, t)).status, 400);
   assert.equal((await call('PATCH', '/api/me', {}, t)).status, 400);
   const run = await call('POST', '/api/runs', { replay: playRun(77, { hops: 1 }).code }, t);

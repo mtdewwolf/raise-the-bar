@@ -5,28 +5,86 @@ plugins {
 // The game itself lives in ../index.html (the same file the browser version uses).
 // It's copied into the APK's assets at build time so there is only one copy to maintain.
 def gameAssetsDir = layout.buildDirectory.dir('generated/gameAssets')
-// Leaderboard server: ./gradlew assembleRelease -PrtbApi=https://your-server (or RTB_API env var).
+// Leaderboard server: ./gradlew bundlePlayStoreRelease -PrtbApi=https://your-server (or RTB_API env var).
 // Without it the app still plays fully offline, just with no online leaderboards.
 def rtbApi = (project.findProperty('rtbApi') ?: System.getenv('RTB_API') ?: '').toString().trim()
+// Permanent, non-consumable product configured separately in Play Console. There is deliberately
+// no checked-in fallback: an unconfigured Play build must not display or launch a purchase.
+def playSupporterProduct = (project.findProperty('rtbPlaySupporterProduct') ?:
+        System.getenv('RTB_PLAY_SUPPORTER_PRODUCT') ?: '').toString().trim()
 def copyGame = tasks.register('copyGame', Copy) {
     from rootProject.file('../index.html')
     into gameAssetsDir
     inputs.property('rtbApi', rtbApi)
+    filteringCharset = 'UTF-8'
+    // Identify Android before scripts run, including in offline builds without RTB_API.
+    doFirst {
+        if (!rootProject.file('../index.html').getText('UTF-8').contains('<head>')) {
+            throw new GradleException('Cannot inject the required Android platform marker')
+        }
+    }
+    filter { String line -> line.replace('<head>', '''<head>
+<meta name="rtb-platform" content="android">
+<meta http-equiv="Content-Security-Policy" content="frame-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'">''') }
     if (rtbApi) {
         filter { String line -> line.replace('<meta name="rtb-api" content="">', '<meta name="rtb-api" content="' + rtbApi + '">') }
     }
 }
 
+def releaseSigning = ['RTB_KEYSTORE_FILE', 'RTB_KEYSTORE_PASSWORD', 'RTB_KEY_ALIAS', 'RTB_KEY_PASSWORD']
+        .collectEntries { name -> [(name): (project.findProperty(name) ?: System.getenv(name))?.toString()] }
+def validateReleaseSigning = tasks.register('validateReleaseSigning') {
+    doLast {
+        def missing = releaseSigning.findAll { name, value -> !value?.trim() }.keySet()
+        if (missing) {
+            throw new GradleException('Release requires private signing configuration: ' + missing.join(', ') +
+                    '. For a public-key test artifact use bundlePlayStoreInternalTest instead.')
+        }
+        def keyFile = file(releaseSigning.RTB_KEYSTORE_FILE)
+        if (!keyFile.isFile() || keyFile.canonicalFile == file('test-signing.keystore').canonicalFile) {
+            throw new GradleException('Release signing requires an existing private keystore, never the public test key')
+        }
+        // Compare certificates as well as paths: copying/renaming the test key does not make it private.
+        def certificate
+        try {
+            def keyStore = java.security.KeyStore.getInstance(keyFile, releaseSigning.RTB_KEYSTORE_PASSWORD.toCharArray())
+            if (!keyStore.isKeyEntry(releaseSigning.RTB_KEY_ALIAS)) throw new IllegalArgumentException('No signing key')
+            certificate = keyStore.getCertificate(releaseSigning.RTB_KEY_ALIAS)
+        } catch (Exception ignored) {
+            throw new GradleException('Cannot read the private release signing key; check the keystore and alias')
+        }
+        def fingerprint = java.security.MessageDigest.getInstance('SHA-256').digest(certificate.encoded).encodeHex().toString()
+        if (fingerprint == '6e7f72b668c448ff5e388d10894eb473098779bdc31fcee9acb51f944dc5f0cc') {
+            throw new GradleException('The checked-in public test signing key must never sign a release build')
+        }
+    }
+}
+
+def validatePlayStoreConfiguration = tasks.register('validatePlayStoreConfiguration') {
+    doLast {
+        if (!rtbApi) {
+            throw new GradleException('Play Store release requires RTB_API for authenticated purchase verification')
+        }
+        def api = new URI(rtbApi)
+        if (api.scheme != 'https' || !api.host || api.userInfo || api.query || api.fragment) {
+            throw new GradleException('RTB_API must be a fixed HTTPS origin/path without credentials, query or fragment')
+        }
+        if (!(playSupporterProduct ==~ /[a-z0-9][a-z0-9._-]{0,149}/)) {
+            throw new GradleException('Play Store release requires a valid RTB_PLAY_SUPPORTER_PRODUCT Play Console product ID')
+        }
+    }
+}
+
 android {
     namespace 'com.raisethebar.game'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId 'com.raisethebar.game'
         minSdk 26
-        targetSdk 35
-        versionCode 4
-        versionName '1.2.0'
+        targetSdk 36
+        versionCode 5
+        versionName '1.3.0'
 
         // Where shared challenge links point. Replay links only work for friends once the
         // web version is hosted here (e.g. GitHub Pages). The app also opens these links.
@@ -35,6 +93,8 @@ android {
         def sharePath = shareUri.path ?: '/'
         if (!shareHost || shareUri.scheme != 'https') throw new GradleException('RTB_API must use HTTPS for shared app links')
         buildConfigField 'String', 'SHARE_BASE_URL', "\"https://${shareHost}${sharePath}\""
+        buildConfigField 'String', 'RTB_API_BASE_URL', "\"${rtbApi.replace('\\', '\\\\').replace('"', '\\"')}\""
+        buildConfigField 'String', 'PLAY_SUPPORTER_PRODUCT_ID', "\"${playSupporterProduct.replace('\\', '\\\\').replace('"', '\\"')}\""
         manifestPlaceholders = [shareHost: shareHost, sharePath: sharePath]
     }
 
@@ -42,8 +102,23 @@ android {
         buildConfig true
     }
 
+    flavorDimensions += 'distribution'
+    productFlavors {
+        direct {
+            dimension 'distribution'
+            buildConfigField 'boolean', 'PLAY_BILLING_ENABLED', 'false'
+        }
+        playStore {
+            dimension 'distribution'
+            // Permanent Play Console identity. Keep the Java namespace and direct-install
+            // application ID unchanged so existing sideload installs remain a separate app.
+            applicationId 'com.groves.rtb'
+            buildConfigField 'boolean', 'PLAY_BILLING_ENABLED', 'true'
+        }
+    }
+
     signingConfigs {
-        // A fixed test key checked into the repo, so every build (local or CI) has the same
+        // A fixed test key checked into the repo, so every explicit test build has the same
         // signature and a new APK installs as an UPDATE over the previous one. It is public:
         // fine for test builds, never for the Play Store.
         test {
@@ -52,30 +127,36 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-        // Your private release key, if provided (CI secrets or ~/.gradle/gradle.properties):
+        // Release always uses a private key (CI secrets or ~/.gradle/gradle.properties):
         // RTB_KEYSTORE_FILE, RTB_KEYSTORE_PASSWORD, RTB_KEY_ALIAS, RTB_KEY_PASSWORD
-        def ksFile = project.findProperty('RTB_KEYSTORE_FILE') ?: System.getenv('RTB_KEYSTORE_FILE')
-        if (ksFile) {
-            upload {
-                storeFile file(ksFile)
-                storePassword (project.findProperty('RTB_KEYSTORE_PASSWORD') ?: System.getenv('RTB_KEYSTORE_PASSWORD'))
-                keyAlias (project.findProperty('RTB_KEY_ALIAS') ?: System.getenv('RTB_KEY_ALIAS'))
-                keyPassword (project.findProperty('RTB_KEY_PASSWORD') ?: System.getenv('RTB_KEY_PASSWORD'))
-            }
+        upload {
+            if (releaseSigning.RTB_KEYSTORE_FILE) storeFile file(releaseSigning.RTB_KEYSTORE_FILE)
+            storePassword releaseSigning.RTB_KEYSTORE_PASSWORD
+            keyAlias releaseSigning.RTB_KEY_ALIAS
+            keyPassword releaseSigning.RTB_KEY_PASSWORD
         }
     }
 
     buildTypes {
         debug {
             signingConfig signingConfigs.test
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+            resValue 'string', 'app_name', 'Raising the Bar (Debug)'
         }
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Installable out of the box with the shared test key; uses your private key instead
-            // when RTB_KEYSTORE_FILE is set (required before publishing to the Play Store).
-            signingConfig signingConfigs.findByName('upload') ?: signingConfigs.test
+            signingConfig signingConfigs.upload
+        }
+        internalTest {
+            initWith release
+            matchingFallbacks = ['release']
+            signingConfig signingConfigs.test
+            applicationIdSuffix '.internaltest'
+            versionNameSuffix '-internal-test'
+            resValue 'string', 'app_name', 'Raising the Bar (Test)'
         }
     }
 
@@ -97,9 +178,18 @@ dependencies {
     implementation 'androidx.webkit:webkit:1.12.1'
     // hinge / fold posture on foldables (Galaxy Z Fold Flex mode)
     implementation 'androidx.window:window-java:1.3.0'
+    playStoreImplementation 'com.android.billingclient:billing:9.1.0'
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.14.1'
 }
 
 tasks.named('preBuild') { dependsOn copyGame }
+tasks.configureEach { task ->
+    if (task.name == 'preDirectReleaseBuild' || task.name == 'prePlayStoreReleaseBuild') {
+        task.dependsOn validateReleaseSigning
+    }
+    if (task.name == 'prePlayStoreReleaseBuild') {
+        task.dependsOn validatePlayStoreConfiguration
+    }
+}

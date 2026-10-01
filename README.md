@@ -19,11 +19,13 @@ The `android/` folder is an Android app that wraps the same `index.html` in a fu
   - Rendering is sharp at the inner screen's pixel density.
   - **Flex mode:** half-fold the phone in landscape (tabletop) and the climb stays on the top half while the bottom half becomes a controller with large left and right pads.
 
-**Get an APK:** every push that touches the game builds one in GitHub Actions (*Android APK* workflow → *raising-the-bar-apk* artifact). Install `app-release.apk` on your phone; you may need to allow installs from unknown sources.
+**Get an APK:** every push that touches the game builds one in GitHub Actions (*Android APK* workflow → *raising-the-bar-apk* artifact). Install `app-internalTest.apk` on your phone; you may need to allow installs from unknown sources.
 
-**Build it yourself:** open `android/` in Android Studio, or run `./gradlew assembleRelease` from `android/` (needs JDK 17 and the Android SDK). The APK ends up in `android/app/build/outputs/apk/`. All builds are signed with a shared test key that's committed to the repo (`android/app/test-signing.keystore`). Because every build has the same signature, a new APK installs as an update over the old one and keeps your saved bests. The key is public, so before publishing to Google Play set `RTB_KEYSTORE_FILE`, `RTB_KEYSTORE_PASSWORD`, `RTB_KEY_ALIAS` and `RTB_KEY_PASSWORD` (as Gradle properties or environment variables) to use your own private key for release builds.
+**Build it yourself:** open `android/` in Android Studio, or run `./gradlew assembleDirectInternalTest` from `android/` (needs JDK 17 and the Android SDK). The APK ends up in `android/app/build/outputs/apk/direct/internalTest/`. Debug and explicitly named internal-test builds use a shared test key committed to the repo (`android/app/test-signing.keystore`). Because every build has the same signature, a new APK installs as an update over the old one and keeps your saved bests. The key is public, so before publishing to Google Play set `RTB_KEYSTORE_FILE`, `RTB_KEYSTORE_PASSWORD`, `RTB_KEY_ALIAS` and `RTB_KEY_PASSWORD` (as Gradle properties or environment variables) to use your own private upload key for release builds. `bundlePlayStoreRelease` fails if private signing is missing or uses the public test certificate, including renamed copies. There is no release fallback. See [Android payment safety](android/PAYMENT-SAFETY.md).
 
 *Upgrading from a build older than 1.2.0:* those were signed with a throwaway key, so uninstall the old app once before installing 1.2.0. Updates install normally after that.
+
+The Android project now has `direct` and `playStore` distribution flavors. The direct release keeps the historical sideload package `com.raisethebar.game`; the Play release uses the permanent Play Console application ID `com.groves.rtb`. Debug and internal-test builds append `.debug` and `.internaltest`, so test installs cannot overwrite either release app or its local data. Use `assembleDirectInternalTest` for the normal sideloaded test APK or `bundlePlayStoreInternalTest` for a test-signed Play integration AAB. The manual Android workflow can run `bundlePlayStoreRelease` only after an owner explicitly selects the signed-release input from the default branch, passes the protected `play-internal` environment gate, and configures the environment-scoped upload-keystore secrets plus the `RTB_API` and `RTB_PLAY_SUPPORTER_PRODUCT` repository variables. Play release builds require Android SDK 36 and fail closed when any value is missing or when the public repository test certificate is used. Play artifacts are not release-ready until Play App Signing, the Console product/test track, and backend verification are configured. See [Google Play backend setup](server/GOOGLE-PLAY.md).
 
 Challenge links from the app point at `https://mtdewwolf.github.io/raise-the-bar/`. That URL only works for friends if the game is published on GitHub Pages. To use a different address, change `shareHost` / `sharePath` in `android/app/build.gradle`.
 
@@ -114,7 +116,7 @@ The ladder stays climbable on skill alone, but from the Clouds up the gaps widen
 - **28 achievements** (🏅 in the menu), from *Liftoff* to *Space Program*, with a pop-up when you unlock one. They're saved on the device and synced to your profile when online.
 - **Works offline.** Without a server the game plays normally. Runs finished offline upload the next time the server can be reached.
 
-Leaderboards need the small server in [`server/`](server/README.md): no dependencies, one command to start, and it can host the game itself.
+Leaderboards need the small server in [`server/`](server/README.md): run `npm ci` once and `npm start` to start, and it can host the game itself.
 
 ## Systems
 
@@ -126,3 +128,7 @@ Leaderboards need the small server in [`server/`](server/README.md): no dependen
 - **Blood (optional).** Hitting the floor sprays cartoon blood that splats on the mat and pools under the body, more for harder landings. Turn it off with **B** or the 🩸 button on the main menu; the choice is remembered.
 - **Action replay.** After a fall, the last 3 seconds play back in slow motion (slowest at the slip and the landing) with a zoomed camera, deeper slowed-down sound effects and a sports-commentator line, before the game-over card. Press Enter / Space or tap to skip.
 - The best height is saved in `localStorage`.
+
+## Account and test payment foundation
+
+The Account & test shop panel protects an existing profile with a username/password and saved recovery code. No email reset exists yet. A cosmetic supporter headband is wired for provisional USD4.99 Stripe sandbox checkout on the web, disabled by default; it does not affect physics or earned Chalk. Play builds use native Google Play Billing for the same permanent entitlement and never expose Stripe web checkout. Live payments, Play Console publishing and real device purchase verification remain disabled/unverified. See [Stripe setup and safety boundaries](server/PAYMENTS.md) and [Google Play setup and launch blockers](server/GOOGLE-PLAY.md).
