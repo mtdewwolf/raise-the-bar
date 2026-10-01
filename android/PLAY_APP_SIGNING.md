@@ -1,8 +1,8 @@
 # Play App Signing and the upload key
 
-One-time steps for the owner. Do them in a password manager and in Play Console. Do not commit the upload keystore, its passwords, or a Play artifact signed with `android/app/test-signing.keystore`.
+One-time steps for the owner. Do them in a password manager and in Play Console. Never commit the upload keystore, its passwords, or a Play artifact signed with `android/app/test-signing.keystore`.
 
-The committed test keystore is for **debug APKs only**. `assembleRelease` and `bundleRelease` fail until `RTB_KEYSTORE_FILE`, `RTB_KEYSTORE_PASSWORD`, `RTB_KEY_ALIAS`, and `RTB_KEY_PASSWORD` are set. Pointing those variables at the test keystore will sign a release build, but that certificate is public and must not be enrolled as the Play upload key.
+The committed test keystore is for debug and explicitly named internal-test builds only. Release variants require all four `RTB_KEYSTORE_*` values and reject the public test certificate, even if it has been renamed. Use `bundlePlayStoreInternalTest` to build a test-signed Play integration artifact.
 
 Test certificate (do not register this with Play):
 
@@ -11,9 +11,9 @@ Test certificate (do not register this with Play):
 
 ## 1. Create an upload keystore outside the repo
 
-Use RSA 2048 (or EC P-256) and an expiry after 22 October 2033. 10000 days is past that date. Pick your own alias and password.
+Use RSA 2048 (or EC P-256) and an expiry after 22 October 2033. Pick your own alias and password.
 
-Java’s default PKCS12 keystore uses one password for the store and the key. Put that same value in both `RTB_KEYSTORE_PASSWORD` and `RTB_KEY_PASSWORD`.
+Java's default PKCS12 keystore uses one password for the store and key. Put that same value in both `RTB_KEYSTORE_PASSWORD` and `RTB_KEY_PASSWORD`.
 
 ```bash
 keytool -genkeypair -v \
@@ -23,15 +23,15 @@ keytool -genkeypair -v \
   -storetype PKCS12
 ```
 
-Keep the `.jks` file and the password somewhere that is not this git repository. `android/.gitignore` already ignores `*.jks` and `*.keystore` except the public test key.
+Keep the `.jks` file and password outside this git repository. `android/.gitignore` ignores private keystore files.
 
 ## 2. Enroll in Play App Signing
 
-In Play Console, create the app with package name `com.raisethebar.game` if it does not exist yet.
+Create the Play Console app with package name `com.groves.rtb`. The `direct` flavor keeps the separate sideload package `com.raisethebar.game`.
 
-1. Open **Test and release → App signing** (or **Play App Signing** on older consoles).
-2. Enroll. Let Google generate the **app signing key**. That key stays with Google and is what devices install.
-3. Register the keystore from step 1 as the **upload key**. Choose the option to use a key you export from a Java keystore, and upload the certificate from that keystore (not the private key file itself, if the console asks for a PEM certificate):
+1. Open **Test and release > App signing** (or **Play App Signing** on older consoles).
+2. Enroll and let Google generate the **app signing key**. That key stays with Google and signs the APKs installed by users.
+3. Register the keystore from step 1 as the **upload key**. Export its certificate, not its private key:
 
    ```bash
    keytool -export -rfc \
@@ -40,41 +40,15 @@ In Play Console, create the app with package name `com.raisethebar.game` if it d
      -file upload_certificate.pem
    ```
 
-4. The first binary you upload must be an **Android App Bundle** signed with this upload key. Play then re-signs the device APKs with the app signing key.
+4. The first bundle uploaded to Play must be signed with this upload key. Play then signs device APKs with the app signing key.
 
-If the upload key is ever lost, use Play Console’s upload-key reset. That only works if this private key was never the app signing key. Do not opt out of Play App Signing, and do not upload a bundle signed by the test keystore “just once.” The first upload certificate becomes the upload key.
+If the upload key is lost, request an upload-key reset in Play Console. Do not opt out of Play App Signing or upload a bundle signed with the public test key.
 
-## 3. GitHub Actions secrets
+## 3. GitHub Actions configuration
 
-Repository **Settings → Secrets and variables → Actions**. Create all four. If any one is missing, the Play bundle step fails. If all four are empty, that step is skipped and CI still uploads the debug APK.
+The Android workflow builds direct and Play Store debug and internal-test variants on pushes. The signed Play release job runs only through a manual workflow dispatch on the default branch and is protected by the `play-internal` environment.
 
-| Secret | Value |
-| --- | --- |
-| `RTB_KEYSTORE_BASE64` | Base64 of the upload keystore file (not a path) |
-| `RTB_KEYSTORE_PASSWORD` | Store password |
-| `RTB_KEY_ALIAS` | Alias from step 1 (`upload` in the command above) |
-| `RTB_KEY_PASSWORD` | Key password |
-
-Linux:
-
-```bash
-base64 -w 0 "$HOME/raising-the-bar-upload.jks"
-```
-
-macOS:
-
-```bash
-base64 -i "$HOME/raising-the-bar-upload.jks" | tr -d '\n'
-```
-
-Paste the single line into `RTB_KEYSTORE_BASE64`. The workflow decodes it and passes the path as `RTB_KEYSTORE_FILE`.
-
-The **Android** workflow then:
-
-- always builds `app-debug.apk`, signed with the test key, for sideload testing (artifact `raising-the-bar-debug-apk`)
-- builds `app-release.aab`, signed with the upload key, when the four secrets are set (artifact `raising-the-bar-play-aab`)
-
-Upload the AAB to Play. Do not upload the debug APK or a release APK as the store artifact.
+Configure the environment-scoped secrets `RTB_KEYSTORE_BASE64`, `RTB_KEYSTORE_PASSWORD`, `RTB_KEY_ALIAS`, and `RTB_KEY_PASSWORD`. `RTB_KEYSTORE_BASE64` is the base64 encoding of the keystore file. Also configure repository variables `RTB_API` and `RTB_PLAY_SUPPORTER_PRODUCT`; the Play release requires an HTTPS API URL and a valid product ID. Workload Identity and Fastlane publishing setup are documented in [Play publishing](PLAY-PUBLISHING.md) and [Google Play backend setup](../server/GOOGLE-PLAY.md).
 
 ## 4. Local release builds
 
@@ -83,21 +57,19 @@ export RTB_KEYSTORE_FILE="$HOME/raising-the-bar-upload.jks"
 export RTB_KEYSTORE_PASSWORD='your-store-password'
 export RTB_KEY_ALIAS='upload'
 export RTB_KEY_PASSWORD='your-key-password'
+export RTB_API='https://your-api.example'
+export RTB_PLAY_SUPPORTER_PRODUCT='supporter'
 cd android
-./gradlew bundleRelease
+./gradlew bundlePlayStoreRelease
 ```
 
-The bundle is `android/app/build/outputs/bundle/release/app-release.aab`. The same variables work as Gradle properties (`-PRTB_KEYSTORE_FILE=...`). `./gradlew assembleDebug` does not need them.
+The bundle is `android/app/build/outputs/bundle/playStoreRelease/app-playStore-release.aab`. `bundlePlayStoreRelease` requires SDK 36, a private upload key, `RTB_API`, and `RTB_PLAY_SUPPORTER_PRODUCT`. To build the direct sideload release, use `bundleDirectRelease`; both release variants require private signing. `assembleDirectInternalTest` builds the standard sideload test APK without the upload key.
 
-`RTB_API` (or `-PrtbApi`) is optional and separate. Set it to the HTTPS origin of the leaderboard server when the Play build should enable online profiles. It also becomes the host for shared links.
+## 5. Digital Asset Links
 
-## 5. Digital Asset Links, after enrollment
+Friend invites use `https://<share-host>/challenge/<code>`. Replay links use `https://<share-host><share-path>#r=...`. The share host comes from `RTB_API`; otherwise the default is `mtdewwolf.github.io` with the project path `/raise-the-bar/`. The app claims both link shapes.
 
-Friend invites are `https://<share-host>/challenge/<code>`. Replay links are `https://<share-host><share-path>#r=...`. The share host is the host of `RTB_API`, or `mtdewwolf.github.io` with path `/raise-the-bar/` when `RTB_API` is unset. The app claims both shapes. Android 12 and newer only open those https links without a chooser when verification succeeds.
-
-Verification uses the **app signing** certificate SHA-256 from Play Console (**App signing → App signing key certificate**), not the upload certificate and not the test certificate above.
-
-Publish this file at `https://<share-host>/.well-known/assetlinks.json`:
+Android verifies links using the **app signing** certificate SHA-256 from Play Console (**App signing > App signing key certificate**), not the upload or test certificate. Publish this file at `https://<share-host>/.well-known/assetlinks.json`:
 
 ```json
 [
@@ -105,19 +77,15 @@ Publish this file at `https://<share-host>/.well-known/assetlinks.json`:
     "relation": ["delegate_permission/common.handle_all_urls"],
     "target": {
       "namespace": "android_app",
-      "package_name": "com.raisethebar.game",
-      "sha256_cert_fingerprints": [
-        "REPLACE_WITH_PLAY_APP_SIGNING_SHA256"
-      ]
+      "package_name": "com.groves.rtb",
+      "sha256_cert_fingerprints": ["REPLACE_WITH_PLAY_APP_SIGNING_SHA256"]
     }
   }
 ]
 ```
 
-Serve it as `Content-Type: application/json` over HTTPS, with no redirect to another host. A GitHub **project** site (`https://mtdewwolf.github.io/raise-the-bar/`) cannot serve `/.well-known/assetlinks.json` at the host root. Put the file on a host you control (the public game origin, the same host as `RTB_API`). A GitHub user site can serve it only from the `username.github.io` repository root, which is a different repo.
+Serve it as `Content-Type: application/json` over HTTPS without redirecting to another host. A GitHub project site cannot serve `/.well-known/assetlinks.json` at the host root; use a host you control. Verify it with [Google's statement list tester](https://developers.google.com/digital-asset-links/tools/generator), then reinstall the Play-signed build so Android retries link verification.
 
-Check with [Google’s statement list tester](https://developers.google.com/digital-asset-links/tools/generator) after the file is live, then reinstall the Play-signed build so Android retries verification.
+## Also required in Play Console
 
-## Still done in Play Console, not in this repo
-
-Account deletion, the privacy-policy URL, user-generated-content reporting, and the Data safety form are separate owner steps. This repo does not implement them.
+Account deletion, the privacy-policy URL, user-generated-content reporting, and the Data safety form are separate owner steps. They are outside this guide.

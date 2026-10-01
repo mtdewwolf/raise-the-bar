@@ -1,0 +1,9 @@
+server/node_modules/
+server/data/
+
+# Google credentials must remain private and outside the checkout.
+play-store-credentials*.json
+play-publisher*.json
+google-play-credentials*.json
+*service-account*.json
+gha-creds-*.json

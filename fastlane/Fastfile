@@ -1,0 +1,39 @@
+default_platform(:android)
+
+PLAY_PACKAGE = "com.groves.rtb"
+PLAY_RELEASE_AAB = File.expand_path(
+  "../android/app/build/outputs/bundle/playStoreRelease/app-playStore-release.aab",
+  __dir__
+)
+
+platform :android do
+  desc "Upload only the signed AAB to the Google Play internal-testing track"
+  lane :publish_internal do |options|
+    ensure_bundle_exec
+
+    credentials = ENV["GOOGLE_APPLICATION_CREDENTIALS"].to_s
+    UI.user_error!("GOOGLE_APPLICATION_CREDENTIALS must name a credential file") if credentials.empty?
+    UI.user_error!("Google credential file does not exist") unless File.file?(credentials)
+    UI.user_error!("Signed Play release AAB is missing: #{PLAY_RELEASE_AAB}") unless File.file?(PLAY_RELEASE_AAB)
+
+    release_status = options[:release_status].to_s
+    release_status = "draft" if release_status.empty?
+    allowed_statuses = %w[draft completed]
+    unless allowed_statuses.include?(release_status)
+      UI.user_error!("Internal release_status must be draft or completed")
+    end
+
+    upload_to_play_store(
+      package_name: PLAY_PACKAGE,
+      aab: PLAY_RELEASE_AAB,
+      track: "internal",
+      release_status: release_status,
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      timeout: 300
+    )
+  end
+end
