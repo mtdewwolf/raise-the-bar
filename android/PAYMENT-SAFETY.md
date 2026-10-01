@@ -67,10 +67,19 @@ suffixes so public-key test artifacts cannot replace either release install.
 - `RTB_KEY_PASSWORD`
 
 The GitHub Android workflow has an opt-in `build_signed_play_release` manual
-input. It expects the private upload keystore as the `RTB_KEYSTORE_BASE64`
-secret, the other three signing values as same-named secrets, and `RTB_API`
-plus `RTB_PLAY_SUPPORTER_PRODUCT` as repository variables. It materializes the
-keystore only in the runner's temporary directory, builds
+input. The four signing values must exist only as secrets on the protected
+`play-internal` environment: `RTB_KEYSTORE_BASE64`, `RTB_KEYSTORE_PASSWORD`,
+`RTB_KEY_ALIAS`, and `RTB_KEY_PASSWORD`. Remove any repository- or
+organization-level copies accessible to this repository after adding the
+environment secrets; otherwise a workflow changed on another branch could read
+those broader secrets without passing the environment gate. `RTB_API` plus
+`RTB_PLAY_SUPPORTER_PRODUCT` remain non-secret repository variables.
+
+Configure the environment to allow only the repository's default branch,
+require a reviewer, prevent self-review, and disallow administrator bypass. The
+workflow also compares `github.ref` with
+`github.event.repository.default_branch` before the signing job can start. It
+materializes the keystore only in the runner's temporary directory and builds
 `bundlePlayStoreRelease`, removes the file even on failure, and never runs for
 ordinary pushes or pull requests. Prefer Google Play App Signing with a
 separate upload key. Creating that key and adding these secrets are deliberate

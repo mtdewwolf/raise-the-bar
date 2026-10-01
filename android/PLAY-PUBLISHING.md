@@ -46,15 +46,30 @@ repository. When the owner is ready to grant publishing access:
    use the numeric project number, not the project ID. Do not grant that service
    account project-wide Editor/Owner roles; Play permissions are granted
    separately in Play Console.
-6. Create the GitHub environment `play-internal`, restrict it to the default
-   branch, and add a required reviewer if the repository plan supports it. Add
-   these environment variables (not secrets):
+6. Create the GitHub environment `play-internal` before attempting any signed
+   build. Under **Deployment branches and tags**, allow only the repository's
+   default branch. Add a required reviewer, enable **Prevent self-review**, and
+   disable administrator bypass. GitHub withholds environment secrets until
+   these protection rules pass. Add these environment variables (not secrets):
    - `RTB_PLAY_WIF_PROVIDER`: full provider resource name, such as
      `projects/123456789/locations/global/workloadIdentityPools/github/providers/raise-the-bar`
    - `RTB_PLAY_PUBLISHER_SERVICE_ACCOUNT`: publisher service-account email
-7. Confirm the existing signing secrets `RTB_KEYSTORE_BASE64`,
-   `RTB_KEYSTORE_PASSWORD`, `RTB_KEY_ALIAS`, and `RTB_KEY_PASSWORD`, and the
-   `RTB_API` (HTTPS only) and `RTB_PLAY_SUPPORTER_PRODUCT` repository variables.
+7. Re-enter the four private signing values as **environment secrets** on
+   `play-internal`: `RTB_KEYSTORE_BASE64`, `RTB_KEYSTORE_PASSWORD`,
+   `RTB_KEY_ALIAS`, and `RTB_KEY_PASSWORD`. GitHub cannot reveal or move an
+   existing secret, so use the original private source. After all four exist on
+   the environment, delete identically named repository secrets and remove or
+   restrict any organization-level copies accessible to this repository. Do not
+   leave broader copies as a fallback.
+8. Confirm the non-secret `RTB_API` (HTTPS only) and
+   `RTB_PLAY_SUPPORTER_PRODUCT` repository variables. The workflow's signing and
+   publishing jobs both compare the selected ref to GitHub's current
+   `default_branch`; no branch name is hard-coded.
+
+The checked-in publishing-policy test is defense in depth against accidental
+workflow regressions. The protected environment's default-branch deployment
+rule and removal of broader signing-secret copies are the actual trust boundary;
+verify those repository settings separately before adding any credential.
 
 Then run **Android APK** from the default branch, enable `publish_internal`, and
 leave `play_release_status` at `draft` for the safest first API run. The workflow
@@ -64,6 +79,10 @@ short-lived Google credential through OIDC, and runs:
 ```sh
 bundle exec fastlane android publish_internal release_status:draft
 ```
+
+With required reviewers enabled, a publish run can pause once before the signing
+job and again before the dependent publisher job; approve each only after
+checking the selected default-branch ref, commit, inputs, and generated artifact.
 
 Selecting `completed` makes the internal-test release available according to the
 track's tester configuration. Neither option can target production. Increase
@@ -96,3 +115,4 @@ The repository ignores common Play credential filenames, plus `*.keystore` and
 - Play Console permissions: https://support.google.com/googleplay/android-developer/answer/9844686
 - Google WIF for deployment pipelines: https://cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines
 - Google GitHub auth action: https://github.com/google-github-actions/auth
+- GitHub protected environments: https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
