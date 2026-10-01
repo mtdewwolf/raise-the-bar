@@ -187,15 +187,16 @@ function payments({db,q,now,auth,account,profile,readJson,HttpError,limit,public
     let event;
     try{event=JSON.parse(Buffer.from(message.data,'base64').toString('utf8'));}catch{throw new HttpError(400,'Invalid Google Play notification');}
     if(event?.packageName!==play.packageName)throw new HttpError(400,'Unexpected Google Play package');
-    const oneTime=event.oneTimeProductNotification,voided=event.voidedPurchaseNotification;
+    const oneTime=event.oneTimeProductNotification,voided=event.voidedPurchaseNotification,testNotification=event.testNotification;
+    if([oneTime,voided,testNotification].filter(Boolean).length!==1)throw new HttpError(400,'Unsupported Google Play notification');
     if(oneTime){
       if(![1,2].includes(oneTime.notificationType)||!Object.values(play.productIds).includes(oneTime.sku))throw new HttpError(400,'Unexpected Google Play notification');
       await processPlayPurchase(oneTime.purchaseToken,null,false);
     }else if(voided){
       if(voided.productType!==2)throw new HttpError(400,'Unexpected Google Play notification');
       await processPlayPurchase(voided.purchaseToken,null,true);
-    }else throw new HttpError(400,'Unsupported Google Play notification');
-    db.prepare('INSERT OR IGNORE INTO google_play_events VALUES (?,?,?)').run(eventId,oneTime?'one_time':'voided',now());
+    }else if(testNotification?.version!=='1.0')throw new HttpError(400,'Unexpected Google Play notification');
+    db.prepare('INSERT OR IGNORE INTO google_play_events VALUES (?,?,?)').run(eventId,oneTime?'one_time':voided?'voided':'test',now());
     return {received:true};
   }
   const routes={
